@@ -1,0 +1,76 @@
+name: truyen_app
+description: TruyenCV - Đọc truyện chữ
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Navigation
+  go_router: ^14.6.2
+
+  # HTTP
+  dio: ^5.7.0
+  dio_cache_interceptor: ^3.5.0
+
+  # Storage
+  shared_preferences: ^2.3.3
+  flutter_secure_storage: ^9.2.2
+
+  # UI
+  cached_network_image: ^3.4.1
+  google_fonts: ^6.2.1
+  shimmer: ^3.0.0
+
+  # Utils
+  url_launcher: ^6.3.1
+  package_info_plus: ^8.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  riverpod_generator: ^2.6.1
+  build_runner: ^2.4.13
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.0
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: false                      # chưa có iOS project, enable khi build iOS
+  remove_alpha_ios: true          # App Store: không cho phép transparency
+  image_path: "assets/images/app_icon.png"
+  # Android Adaptive Icon (API 26+)
+  adaptive_icon_background: "#0F1923"
+  adaptive_icon_foreground: "assets/images/app_icon.png"
+  min_sdk_android: 21
+
+flutter_native_splash:
+  color: "#0F1923"
+  image: assets/images/app_icon.png
+  android_12:
+    image: assets/images/app_icon.png
+    color: "#0F1923"
+    icon_background_color: "#0F1923"
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Orbitron
+      fonts:
+        - asset: assets/fonts/Orbitron-Regular.ttf
+        - asset: assets/fonts/Orbitron-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Orbitron-Bold.ttf
+          weight: 700
+  assets:
+    - assets/images/
+    - assets/fonts/
