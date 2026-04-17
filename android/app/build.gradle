@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.truyencv.app"
+    namespace = "io.truyencv.app"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -19,7 +19,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.truyencv.app"
+        applicationId = "io.truyencv.app"
         minSdkVersion = flutter.minSdkVersion
         targetSdk = 34
         versionCode = flutter.versionCode

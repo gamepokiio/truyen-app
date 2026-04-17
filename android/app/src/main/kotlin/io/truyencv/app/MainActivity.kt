@@ -1,4 +1,4 @@
-package com.truyencv.app
+package io.truyencv.app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -8,7 +8,7 @@
 -dontwarn io.flutter.embedding.**
 
 # Keep application class
--keep class com.truyencv.app.** { *; }
+-keep class io.truyencv.app.** { *; }
 
 # Riverpod / Dart reflection
 -keep class * extends java.lang.annotation.Annotation { *; }
