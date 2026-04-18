@@ -106,7 +106,10 @@ class _HistoryTab extends ConsumerWidget {
           timeAgo: _timeAgo(entry.readAt),
           onTap: () => context.push(
             '/reader/${entry.novelId}/${entry.chapterId}',
-            extra: {'chapterTitle': entry.chapterTitle},
+            extra: {
+              'chapterTitle': entry.chapterTitle,
+              'chapterNumber': entry.chapterNumber,
+            },
           ),
           onNovelTap: () => context.push('/novel/${entry.novelId}'),
           onRemove: () => ref.read(historyProvider.notifier).removeHistory(entry.novelId),

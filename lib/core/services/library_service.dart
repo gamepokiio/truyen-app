@@ -80,6 +80,7 @@ class HistoryEntry {
   final String? authorName;
   final int chapterId;
   final String chapterTitle;
+  final int chapterNumber;
   final DateTime readAt;
 
   const HistoryEntry({
@@ -89,6 +90,7 @@ class HistoryEntry {
     this.authorName,
     required this.chapterId,
     required this.chapterTitle,
+    this.chapterNumber = 0,
     required this.readAt,
   });
 
@@ -99,6 +101,7 @@ class HistoryEntry {
     'authorName': authorName,
     'chapterId': chapterId,
     'chapterTitle': chapterTitle,
+    'chapterNumber': chapterNumber,
     'readAt': readAt.toIso8601String(),
   };
 
@@ -109,6 +112,7 @@ class HistoryEntry {
     authorName: json['authorName'] as String?,
     chapterId: json['chapterId'] as int,
     chapterTitle: json['chapterTitle'] as String? ?? '',
+    chapterNumber: json['chapterNumber'] as int? ?? 0,
     readAt: DateTime.tryParse(json['readAt'] as String? ?? '') ?? DateTime.now(),
   );
 }

@@ -203,6 +203,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             authorName: meta.authorName,
             chapterId: widget.chapterId,
             chapterTitle: widget.chapterTitle,
+            chapterNumber: widget.chapterNumber,
             readAt: DateTime.now(),
           ));
     }

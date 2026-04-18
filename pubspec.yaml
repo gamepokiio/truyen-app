@@ -45,7 +45,7 @@ dev_dependencies:
 
 flutter_launcher_icons:
   android: "launcher_icon"
-  ios: false                      # chưa có iOS project, enable khi build iOS
+  ios: true
   remove_alpha_ios: true          # App Store: không cho phép transparency
   image_path: "assets/images/app_icon.png"
   # Android Adaptive Icon (API 26+)
@@ -56,6 +56,7 @@ flutter_launcher_icons:
 flutter_native_splash:
   color: "#0F1923"
   image: assets/images/app_icon.png
+  ios: true
   android_12:
     image: assets/images/app_icon.png
     color: "#0F1923"
