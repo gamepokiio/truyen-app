@@ -401,7 +401,7 @@ class _HeroSection extends ConsumerWidget {
     final progressAsync = ref.watch(readingProgressProvider(novel.id));
 
     return SizedBox(
-      height: 300,
+      height: 270,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -1621,6 +1621,24 @@ class _CommentItem extends StatelessWidget {
                           style: const TextStyle(
                               fontSize: 11, color: _textSecondary),
                         ),
+                        GestureDetector(
+                          onTap: () => showModalBottomSheet(
+                            context: context,
+                            shape: const RoundedRectangleBorder(
+                              borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(16)),
+                            ),
+                            builder: (_) => _CommentReportSheet(
+                              authorName: comment.authorName,
+                              commentId: comment.id,
+                            ),
+                          ),
+                          child: const Padding(
+                            padding: EdgeInsets.only(left: 6),
+                            child: Icon(Icons.flag_outlined,
+                                size: 15, color: Colors.grey),
+                          ),
+                        ),
                       ],
                     ),
                     if (isReview) ...[
@@ -2189,6 +2207,13 @@ class _ReportSheetState extends State<_ReportSheet> {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
       if (mounted) Navigator.of(context).pop();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Không tìm thấy app email. Liên hệ: support@truyencv.io')),
+        );
+      }
     }
   }
 
@@ -2220,6 +2245,114 @@ class _ReportSheetState extends State<_ReportSheet> {
                   value: e.key,
                   groupValue: _selected,
                   title: Text(e.value, style: const TextStyle(fontSize: 14)),
+                  onChanged: (v) => setState(() => _selected = v),
+                  activeColor: const Color(0xFF22D3EE),
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                )),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: _selected != null ? _send : null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.redAccent,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.grey.shade200,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+                child: const Text('Gửi báo cáo'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Comment Report Sheet ─────────────────────────────────────────────────────
+
+class _CommentReportSheet extends StatefulWidget {
+  final String authorName;
+  final int commentId;
+  const _CommentReportSheet({
+    required this.authorName,
+    required this.commentId,
+  });
+
+  @override
+  State<_CommentReportSheet> createState() => _CommentReportSheetState();
+}
+
+class _CommentReportSheetState extends State<_CommentReportSheet> {
+  int? _selected;
+
+  static const _reasons = [
+    'Spam / quảng cáo',
+    'Ngôn từ thô tục / xúc phạm',
+    'Nội dung không phù hợp',
+    'Thông tin sai lệch / spoiler quá mức',
+    'Lý do khác',
+  ];
+
+  Future<void> _send() async {
+    final reason = _selected != null ? _reasons[_selected!] : 'Không rõ';
+    final uri = Uri(
+      scheme: 'mailto',
+      path: 'support@truyencv.io',
+      queryParameters: {
+        'subject': 'Báo cáo bình luận #${widget.commentId}',
+        'body':
+            'Người dùng: ${widget.authorName}\n'
+            'Lý do: $reason\n\n'
+            '(Mô tả thêm nếu có)',
+      },
+    );
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+      if (mounted) Navigator.of(context).pop();
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Không tìm thấy app email. Liên hệ: support@truyencv.io')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              const Icon(Icons.flag_outlined,
+                  size: 18, color: Colors.redAccent),
+              const SizedBox(width: 8),
+              const Text('Báo cáo bình luận',
+                  style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Spacer(),
+              IconButton(
+                  icon: const Icon(Icons.close, size: 20),
+                  onPressed: () => Navigator.of(context).pop()),
+            ]),
+            const SizedBox(height: 4),
+            const Text('Chọn lý do báo cáo:',
+                style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 8),
+            ..._reasons.asMap().entries.map((e) => RadioListTile<int>(
+                  value: e.key,
+                  groupValue: _selected,
+                  title:
+                      Text(e.value, style: const TextStyle(fontSize: 14)),
                   onChanged: (v) => setState(() => _selected = v),
                   activeColor: const Color(0xFF22D3EE),
                   contentPadding: EdgeInsets.zero,

@@ -44,6 +44,8 @@ class ReaderTheme {
     bg: Color(0xFFF5E6C8), text: Color(0xFF3E2723), name: 'Sepia');
   static const dark = ReaderTheme(
     bg: Color(0xFF1A1A2E), text: Color(0xFFE0E0E0), name: 'Tối');
+  static const cream = ReaderTheme(
+    bg: Color(0xFFEAE4D3), text: Color(0xFF3E2723), name: 'Kem');
 
-  static const all = [white, sepia, dark];
+  static const all = [white, sepia, cream, dark];
 }

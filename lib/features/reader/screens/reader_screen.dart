@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/dio_client.dart';
@@ -103,24 +104,56 @@ final _adjacentProvider = FutureProvider.family<
 final _readerSettingsProvider =
     StateProvider<_ReaderSettings>((ref) => const _ReaderSettings());
 
+// 0 = Mặc định, 1 = Inter, 2 = Noto Serif, 3 = Lora
+const _kFontNames = ['Mặc định', 'Inter', 'Noto Serif', 'Lora'];
+
 class _ReaderSettings {
   final double fontSize;
   final int themeIndex;
   final double lineHeight;
+  final int fontIndex;
 
   const _ReaderSettings({
     this.fontSize = 17,
     this.themeIndex = 0,
     this.lineHeight = 1.8,
+    this.fontIndex = 0,
   });
 
-  _ReaderSettings copyWith(
-          {double? fontSize, int? themeIndex, double? lineHeight}) =>
+  _ReaderSettings copyWith({
+    double? fontSize,
+    int? themeIndex,
+    double? lineHeight,
+    int? fontIndex,
+  }) =>
       _ReaderSettings(
         fontSize: fontSize ?? this.fontSize,
         themeIndex: themeIndex ?? this.themeIndex,
         lineHeight: lineHeight ?? this.lineHeight,
+        fontIndex: fontIndex ?? this.fontIndex,
       );
+
+  /// Tạo TextStyle đọc truyện theo font đã chọn
+  TextStyle buildTextStyle({
+    required Color color,
+    double extraSize = 0,
+    double? customHeight,
+    FontWeight? fontWeight,
+  }) {
+    final sz = fontSize + extraSize;
+    final h  = customHeight ?? lineHeight;
+    switch (fontIndex) {
+      case 1: return TextStyle(
+          fontFamily: 'Inter',
+          fontSize: sz, color: color, height: h, fontWeight: fontWeight);
+      case 2: return GoogleFonts.notoSerif(
+          fontSize: sz, color: color, height: h, fontWeight: fontWeight);
+      case 3: return GoogleFonts.lora(
+          fontSize: sz, color: color, height: h, fontWeight: fontWeight);
+      default: return TextStyle(
+          fontSize: sz, color: color, height: h, fontWeight: fontWeight);
+    }
+  }
 }
 
 // ─── ReaderScreen ─────────────────────────────────────────────────────────────
@@ -318,11 +351,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         padding: const EdgeInsets.only(bottom: 20),
                         child: Text(
                           _formattedTitle,
-                          style: TextStyle(
-                            fontSize: settings.fontSize + 3,
+                          style: settings.buildTextStyle(
                             color: theme.text,
+                            extraSize: 3,
+                            customHeight: 1.4,
                             fontWeight: FontWeight.bold,
-                            height: 1.4,
                           ),
                         ),
                       );
@@ -347,11 +380,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       padding: const EdgeInsets.only(bottom: 14),
                       child: Text(
                         paragraphs[i - 1],
-                        style: TextStyle(
-                          fontSize: settings.fontSize,
-                          color: theme.text,
-                          height: settings.lineHeight,
-                        ),
+                        style: settings.buildTextStyle(color: theme.text),
                       ),
                     );
                   },
@@ -462,28 +491,35 @@ class _TopBar extends StatelessWidget {
       ),
       child: SafeArea(
         bottom: false,
-        child: Row(
-          children: [
-            IconButton(
-              icon: Icon(Icons.arrow_back, color: theme.text),
-              onPressed: onBack,
-            ),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                    color: theme.text,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 15),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+        child: SizedBox(
+          height: 36,
+          child: Row(
+            children: [
+              IconButton(
+                icon: Icon(Icons.arrow_back, color: theme.text, size: 20),
+                onPressed: onBack,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
-            ),
-            IconButton(
-              icon: Icon(Icons.settings_outlined, color: theme.text),
-              onPressed: onSettings,
-            ),
-          ],
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                      color: theme.text,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              IconButton(
+                icon: Icon(Icons.settings_outlined, color: theme.text, size: 20),
+                onPressed: onSettings,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1013,7 +1049,9 @@ class _ReaderSettingsSheet extends ConsumerWidget {
             // Giao diện
             const Text('Giao diện'),
             const SizedBox(height: 8),
-            Row(
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
               children: List.generate(ReaderTheme.all.length, (i) {
                 final t = ReaderTheme.all[i];
                 return GestureDetector(
@@ -1021,7 +1059,6 @@ class _ReaderSettingsSheet extends ConsumerWidget {
                       .read(_readerSettingsProvider.notifier)
                       .update((st) => st.copyWith(themeIndex: i)),
                   child: Container(
-                    margin: const EdgeInsets.only(right: 12),
                     width: 72,
                     height: 40,
                     decoration: BoxDecoration(
@@ -1037,6 +1074,51 @@ class _ReaderSettingsSheet extends ConsumerWidget {
                     alignment: Alignment.center,
                     child: Text(t.name,
                         style: TextStyle(color: t.text, fontSize: 12)),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 16),
+            // Font chữ
+            const Text('Font chữ'),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 8,
+              children: List.generate(_kFontNames.length, (i) {
+                final selected = s.fontIndex == i;
+                return GestureDetector(
+                  onTap: () => ref
+                      .read(_readerSettingsProvider.notifier)
+                      .update((st) => st.copyWith(fontIndex: i)),
+                  child: Container(
+                    width: 88,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? const Color(0xFF22D3EE).withValues(alpha: 0.12)
+                          : Colors.grey[100],
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: selected
+                            ? const Color(0xFF22D3EE)
+                            : Colors.grey[300]!,
+                        width: selected ? 2 : 1,
+                      ),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      _kFontNames[i],
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: selected
+                            ? FontWeight.w600
+                            : FontWeight.normal,
+                        color: selected
+                            ? const Color(0xFF0891B2)
+                            : Colors.grey[700],
+                      ),
+                    ),
                   ),
                 );
               }),

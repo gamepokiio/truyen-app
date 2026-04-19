@@ -21,8 +21,19 @@ class MainShell extends StatelessWidget {
     final idx = _currentIndex(context);
     return Scaffold(
       body: child,
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: NavigationBarTheme(
+        data: NavigationBarThemeData(
+          labelTextStyle: WidgetStateProperty.resolveWith((states) {
+            final selected = states.contains(WidgetState.selected);
+            return TextStyle(
+              fontSize: 11,
+              fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            );
+          }),
+        ),
+        child: NavigationBar(
         selectedIndex: idx,
+        height: 64,
         indicatorColor: _teal.withValues(alpha: 0.15),
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
@@ -59,6 +70,7 @@ class MainShell extends StatelessWidget {
             label: 'Tài Khoản',
           ),
         ],
+        ),
       ),
     );
   }
