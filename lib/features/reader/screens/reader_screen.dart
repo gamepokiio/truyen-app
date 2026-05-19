@@ -10,6 +10,7 @@ import '../../../core/api/novel_api.dart';
 import '../../../shared/models/novel_model.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/library_service.dart';
+import '../../../core/services/ad_service.dart';
 import '../../novel/screens/novel_detail_screen.dart'
     show ReadingProgressService, chapterCountProvider,
          novelDetailInitialTabProvider, chapterPageProvider, ChapterPageState;
@@ -114,10 +115,10 @@ class _ReaderSettings {
   final int fontIndex;
 
   const _ReaderSettings({
-    this.fontSize = 17,
+    this.fontSize = 19,
     this.themeIndex = 0,
     this.lineHeight = 1.8,
-    this.fontIndex = 0,
+    this.fontIndex = 1,
   });
 
   _ReaderSettings copyWith({
@@ -261,6 +262,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     // • Đi tới "next" (số cao hơn) → current = prev của chapter mới
     // • Đi tới "prev" (số thấp hơn) → current = next của chapter mới
     final goingNext = chapter.chapterNumber > widget.chapterNumber;
+
+    // Chỉ đếm + hiển thị ads khi đi tiếp (không đếm khi đi lùi)
+    if (goingNext) {
+      AdService.instance.onChapterChanged();
+    }
+
     context.pushReplacement(
       '/reader/${widget.novelId}/${chapter.id}',
       extra: {
