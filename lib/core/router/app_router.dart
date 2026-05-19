@@ -9,6 +9,7 @@ import '../../features/novel/screens/novel_detail_screen.dart';
 import '../../features/reader/screens/reader_screen.dart';
 import '../../features/library/screens/library_screen.dart';
 import '../../features/ranking/screens/ranking_screen.dart';
+import '../../features/notifications/screens/notification_screen.dart';
 import '../../features/search/screens/search_screen.dart';
 import '../../features/profile/screens/profile_screen.dart';
 import '../../features/genres/screens/genres_screen.dart';
@@ -46,6 +47,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/ranking',
             builder: (_, __) => const RankingScreen(),
+          ),
+          GoRoute(
+            path: '/notifications',
+            builder: (_, __) => const NotificationScreen(),
           ),
           GoRoute(
             path: '/profile',

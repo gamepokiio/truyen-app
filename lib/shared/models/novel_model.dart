@@ -75,7 +75,15 @@ class Novel {
       genres: _parseTermsWithId(json['_embedded']?['wp:term'], 'genre'),
       groups: _parseTermsWithId(json['_embedded']?['wp:term'], 'team'),
       status: json['manga_status'] ?? json['meta']?['_manga_status'] ?? 'ongoing',
-      viewCount: _toInt(json['meta']?['_manga_views'] ?? json['views'] ?? json['view_count']),
+      // WP REST (/wp/v2/manga) does NOT expose meta by default → always 0.
+      // Fallback chain: _manga_views (if backend registers it) →
+      //   _init_view_count (initmanga tracker) → top-level views (custom endpoints).
+      viewCount: _toInt(
+        json['meta']?['_manga_views'] ??
+        json['meta']?['_init_view_count'] ??
+        json['views'] ??
+        json['view_count'],
+      ),
       rating: _toDouble(json['meta']?['_manga_rating']),
       appRatingAvg: (json['app_rating']?['avg'] as num?)?.toDouble() ?? 0.0,
       appReviewCount: (json['app_rating']?['count'] as num?)?.toInt() ?? 0,
@@ -116,6 +124,15 @@ class Novel {
         .replaceAll('&gt;', '>')
         .replaceAll('&quot;', '"')
         .replaceAll('&#039;', "'")
+        .replaceAll('&nbsp;', ' ')
+        .replaceAllMapped(
+          RegExp(r'&#(\d+);'),
+          (m) => String.fromCharCode(int.parse(m.group(1)!)),
+        )
+        .replaceAllMapped(
+          RegExp(r'&#x([0-9a-fA-F]+);'),
+          (m) => String.fromCharCode(int.parse(m.group(1)!, radix: 16)),
+        )
         .trim();
   }
 
@@ -323,7 +340,7 @@ class NovelComment {
       authorName: json['author_name'] as String? ?? 'Ẩn danh',
       authorAvatarUrl: avatar,
       authorLevel: (json['author_level'] as num?)?.toInt() ?? 0,
-      content: rawContent.replaceAll(RegExp(r'<[^>]*>'), '').trim(),
+      content: Novel._stripHtml(rawContent),
       date: json['date'] != null ? DateTime.tryParse(json['date'] as String) : null,
       replyCount: (json['reply_count'] as num?)?.toInt() ?? 0,
       parentId: (json['parent'] as num?)?.toInt() ?? 0,

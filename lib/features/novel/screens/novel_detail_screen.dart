@@ -1,4 +1,4 @@
-import 'dart:ui';
+﻿import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -300,8 +300,8 @@ class NovelDetailScreen extends ConsumerWidget {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const _heroBg = Color(0xFF0F1923);
-const _tealStart = Color(0xFF22D3EE);
-const _tealEnd = Color(0xFF2DD4BF);
+const _tealStart = Color(0xFF1E3A8A);
+const _tealEnd = Color(0xFF2563EB);
 const _bgContent = Color(0xFFF8F9FA);
 const _textPrimary = Color(0xFF1A1A1A);
 const Color _textSecondary = Color(0xFF757575);
@@ -355,9 +355,10 @@ class _NovelDetailContentState extends ConsumerState<_NovelDetailContent>
             elevation: 1,
             child: TabBar(
               controller: _tabController,
-              indicatorColor: _tealStart,
+              indicatorColor: _textPrimary,
               indicatorWeight: 2,
-              labelColor: _tealStart,
+              indicatorSize: TabBarIndicatorSize.tab, // full width tab
+              labelColor: _textPrimary,
               unselectedLabelColor: _textSecondary,
               labelStyle:
                   const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
@@ -401,7 +402,7 @@ class _HeroSection extends ConsumerWidget {
     final progressAsync = ref.watch(readingProgressProvider(novel.id));
 
     return SizedBox(
-      height: 270,
+      height: 300,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -423,12 +424,12 @@ class _HeroSection extends ConsumerWidget {
             ),
           ),
           Positioned(
-            top: MediaQuery.of(context).padding.top + 8,
+            top: MediaQuery.of(context).padding.top + 10,
             left: 12,
             child: _NavBtn(icon: Icons.arrow_back, onTap: () => context.pop()),
           ),
           Positioned(
-            bottom: 20,
+            bottom: 16,
             left: 16,
             right: 16,
             child: Row(
@@ -494,7 +495,7 @@ class _HeroSection extends ConsumerWidget {
                               TextSpan(
                                 text: novel.authorName!,
                                 style: const TextStyle(
-                                    color: _tealStart,
+                                    color: Color(0xFFBAE6FD), // xanh nhạt, dễ đọc trên nền tối
                                     fontWeight: FontWeight.w600),
                               ),
                             ],
@@ -594,103 +595,121 @@ class _IntroTabState extends ConsumerState<_IntroTab>
     final chapterCountAsync = ref.watch(chapterCountProvider(novel.id));
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 40),
+      padding: const EdgeInsets.only(bottom: 40), // bỏ horizontal padding ở đây
       children: [
-        Row(
-          children: [
-            _StatBlock(label: 'Tình trạng', value: novel.statusLabel,
-                valueColor: _statusColor(novel.status)),
-            _divider(),
-            _StatBlock(
-              label: 'Số chương',
-              value: chapterCountAsync.when(
-                data: (c) => c.toString(),
-                loading: () => '...',
-                error: (_, __) => '?',
-              ),
-            ),
-            _divider(),
-            _StatBlock(label: 'Lượt đọc', value: _fmt(novel.viewCount)),
-          ],
-        ),
-        const SizedBox(height: 20),
-        if ((novel.description ?? novel.excerpt) != null &&
-            (novel.description ?? novel.excerpt)!.isNotEmpty) ...[
-          Text(
-            (novel.description ?? novel.excerpt)!,
-            maxLines: _expandDesc ? null : 4,
-            overflow: _expandDesc ? null : TextOverflow.ellipsis,
-            style: const TextStyle(
-                fontSize: 14, color: _textPrimary, height: 1.6),
-          ),
-          TextButton(
-            onPressed: () => setState(() => _expandDesc = !_expandDesc),
-            child: Text(_expandDesc ? 'Thu gọn ▲' : 'Xem thêm ▼',
-                style: const TextStyle(color: _tealStart, fontSize: 13)),
-          ),
-          const SizedBox(height: 12),
-        ],
-        // Genres
-        if (novel.genres.isNotEmpty) ...[
-          const Text('Thể loại',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: novel.genres.map((g) => GestureDetector(
-              onTap: () => context.push('/browse',
-                  extra: {'genreId': g.id, 'genreName': g.name}),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: _tealStart.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: _tealStart.withValues(alpha: 0.3)),
+        // ── Stats — full width tự nhiên ──────────────────────────────────
+        Container(
+          color: const Color(0xFFF3F4F6),
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          child: Row(
+            children: [
+              _StatBlock(label: 'Tình trạng', value: novel.statusLabel,
+                  valueColor: _statusColor(novel.status)),
+              _divider(),
+              _StatBlock(
+                label: 'Số chương',
+                value: chapterCountAsync.when(
+                  data: (c) => c.toString(),
+                  loading: () => '...',
+                  error: (_, __) => '?',
                 ),
-                child: Text(g.name,
-                    style: const TextStyle(color: _tealStart, fontSize: 12)),
               ),
-            )).toList(),
+              _divider(),
+              _StatBlock(
+                label: 'Lượt đọc',
+                // WP REST doesn't expose view count meta → show "—" when unavailable
+                // instead of misleading "0 lượt". Backend fix: register_post_meta
+                // 'manga','_manga_views' with show_in_rest:true in the plugin.
+                value: novel.viewCount > 0 ? _fmt(novel.viewCount) : '—',
+              ),
+            ],
           ),
-          const SizedBox(height: 20),
-        ],
-        // Groups (renamed: Nhóm dịch → Tag)
-        if (novel.groups.isNotEmpty) ...[
-          const Text('Tag',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: novel.groups.map((g) => Chip(
-              label: Text(g.name, style: const TextStyle(fontSize: 12)),
-              backgroundColor: Colors.grey.shade100,
-              side: BorderSide(color: Colors.grey.shade300),
-              padding: EdgeInsets.zero,
-            )).toList(),
-          ),
-          const SizedBox(height: 20),
-        ],
-        // Novels by same author
-        if (novel.authorTermId != null) ...[
-          const Text('Cùng tác giả',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-          const SizedBox(height: 8),
-          _AuthorNovelsRow(authorTermId: novel.authorTermId!, currentId: novel.id),
-        ],
-        const SizedBox(height: 28),
-        // Báo cáo truyện
-        Center(
-          child: TextButton.icon(
-            onPressed: () => _reportNovel(context, novel.id, novel.title),
-            icon: const Icon(Icons.flag_outlined, size: 15,
-                color: Colors.grey),
-            label: const Text('Báo cáo truyện',
-                style: TextStyle(fontSize: 12, color: Colors.grey)),
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            ),
+        ),
+        // ── Nội dung còn lại — có horizontal padding 16px ────────────────
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if ((novel.description ?? novel.excerpt) != null &&
+                  (novel.description ?? novel.excerpt)!.isNotEmpty) ...[
+                Text(
+                  (novel.description ?? novel.excerpt)!,
+                  maxLines: _expandDesc ? null : 4,
+                  overflow: _expandDesc ? null : TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 14, color: _textPrimary, height: 1.6),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _expandDesc = !_expandDesc),
+                  child: Text(_expandDesc ? 'Thu gọn ▲' : 'Xem thêm ▼',
+                      style: const TextStyle(color: _tealStart, fontSize: 13)),
+                ),
+                const SizedBox(height: 12),
+              ],
+              // Genres
+              if (novel.genres.isNotEmpty) ...[
+                const Text('Thể loại',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: novel.genres.map((g) => GestureDetector(
+                    onTap: () => context.push('/browse',
+                        extra: {'genreId': g.id, 'genreName': g.name}),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _tealStart.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: _tealStart.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(g.name,
+                          style: const TextStyle(color: _tealStart, fontSize: 12)),
+                    ),
+                  )).toList(),
+                ),
+                const SizedBox(height: 20),
+              ],
+              // Groups (Tag)
+              if (novel.groups.isNotEmpty) ...[
+                const Text('Tag',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: novel.groups.map((g) => Chip(
+                    label: Text(g.name, style: const TextStyle(fontSize: 12)),
+                    backgroundColor: Colors.grey.shade100,
+                    side: BorderSide(color: Colors.grey.shade300),
+                    padding: EdgeInsets.zero,
+                  )).toList(),
+                ),
+                const SizedBox(height: 20),
+              ],
+              // Cùng tác giả
+              if (novel.authorTermId != null) ...[
+                const Text('Cùng tác giả',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                const SizedBox(height: 8),
+                _AuthorNovelsRow(authorTermId: novel.authorTermId!, currentId: novel.id),
+              ],
+              const SizedBox(height: 28),
+              // Báo cáo truyện
+              Center(
+                child: TextButton.icon(
+                  onPressed: () => _reportNovel(context, novel.id, novel.title),
+                  icon: const Icon(Icons.flag_outlined, size: 15, color: Colors.grey),
+                  label: const Text('Báo cáo truyện',
+                      style: TextStyle(fontSize: 12, color: Colors.grey)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -2013,11 +2032,9 @@ class _ReadButton extends ConsumerWidget {
       child: Container(
         height: 40,
         decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: isSearchingNext
-                ? [Colors.grey.shade400, Colors.grey.shade400]
-                : [_tealStart, _tealEnd],
-          ),
+          color: isSearchingNext
+              ? Colors.grey.shade400
+              : const Color(0xFF1E3A8A), // solid navy, không gradient
           borderRadius: BorderRadius.circular(10),
         ),
         child: Center(
@@ -2029,7 +2046,7 @@ class _ReadButton extends ConsumerWidget {
               : Text(
                   _buttonLabel(progress, nextChapterAsync.valueOrNull),
                   style: const TextStyle(
-                      color: Colors.black,
+                      color: Colors.white, // trắng
                       fontWeight: FontWeight.bold,
                       fontSize: 14),
                 ),
@@ -2246,7 +2263,7 @@ class _ReportSheetState extends State<_ReportSheet> {
                   groupValue: _selected,
                   title: Text(e.value, style: const TextStyle(fontSize: 14)),
                   onChanged: (v) => setState(() => _selected = v),
-                  activeColor: const Color(0xFF22D3EE),
+                  activeColor: const Color(0xFF1E3A8A),
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                 )),
@@ -2354,7 +2371,7 @@ class _CommentReportSheetState extends State<_CommentReportSheet> {
                   title:
                       Text(e.value, style: const TextStyle(fontSize: 14)),
                   onChanged: (v) => setState(() => _selected = v),
-                  activeColor: const Color(0xFF22D3EE),
+                  activeColor: const Color(0xFF1E3A8A),
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                 )),

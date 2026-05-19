@@ -71,6 +71,11 @@ class NovelApi {
   }
 
   Future<Map<String, dynamic>> getNovelById(int id) async {
+    // NOTE: /wp/v2/manga/$id does NOT return view count (meta._manga_views) because
+    // the field isn't registered with show_in_rest:true in the WordPress backend.
+    // To fix on the backend, add to the initmanga plugin (or functions.php):
+    //   register_post_meta('manga','_manga_views',['show_in_rest'=>true,'type'=>'integer','single'=>true]);
+    // Until then, novel.viewCount is always 0 from this endpoint.
     final res = await _dio.get(
       '/wp/v2/manga/$id',
       queryParameters: {'_embed': 'wp:featuredmedia,author,wp:term'},
