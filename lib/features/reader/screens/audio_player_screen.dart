@@ -74,7 +74,13 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
         child: Column(
           children: [
             // ── Top bar ───────────────────────────────────────────────
-            _TopBar(novelTitle: s.novelTitle),
+            _TopBar(
+              novelTitle: s.novelTitle,
+              onClose: () async {
+                await ntf.stop(); // dừng audio hẳn
+                if (context.mounted) Navigator.of(context).pop();
+              },
+            ),
             const SizedBox(height: 12),
 
             // ── Cover ─────────────────────────────────────────────────
@@ -137,7 +143,8 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
 
 class _TopBar extends StatelessWidget {
   final String novelTitle;
-  const _TopBar({required this.novelTitle});
+  final VoidCallback onClose;
+  const _TopBar({required this.novelTitle, required this.onClose});
 
   @override
   Widget build(BuildContext context) {
@@ -148,7 +155,7 @@ class _TopBar extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.keyboard_arrow_down_rounded,
                 color: _textPri, size: 28),
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: onClose, // stop audio + pop
           ),
           Expanded(
             child: Text(
