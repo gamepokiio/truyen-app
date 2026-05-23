@@ -38,21 +38,17 @@ class _AudioPlayerScreenState extends ConsumerState<AudioPlayerScreen> {
     });
   }
 
-  /// Play/Pause với ad logic:
-  /// - Nếu đang play → pause trước → show ad → sau ad dismiss mới play lại
-  /// - Nếu đang pause/stop → show ad → sau ad dismiss mới play
+  /// Play/Pause logic:
+  /// - Đang play  → chỉ pause, không có ad khi dừng
+  /// - Đang pause → count ad (mỗi 3 lần) → sau ad dismiss mới play
   void _handlePlayPause(AudioReaderState s, AudioReaderNotifier ntf) {
     if (kIsWeb) { ntf.togglePlayPause(); return; }
 
     if (s.isPlaying) {
-      // Đang play → pause ngay, rồi show ad, rồi resume sau ad
+      // Đang play → chỉ pause, KHÔNG gọi play lại
       ntf.pause();
-      final adShown = AdService.instance.onAudioInteraction(
-        onDismissed: () => ntf.play(),
-      );
-      if (!adShown) ntf.play(); // Không có ad → resume ngay
     } else {
-      // Đang pause/stop → show ad trước, sau đó play
+      // Đang pause/stop → count ad, sau đó play
       final adShown = AdService.instance.onAudioInteraction(
         onDismissed: () => ntf.play(),
       );

@@ -162,10 +162,11 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
 
   Future<void> pause() async {
     if (kIsWeb) return;
-    // Cập nhật UI ngay lập tức — không đợi TTS stop
+    // Cập nhật UI ngay lập tức (responsive), rồi await stop để TTS thực sự dừng
     state = state.copyWith(status: AudioStatus.paused);
     _syncAdFlag();
-    _tts.stop(); // fire-and-forget cho phản hồi tức thì
+    await _tts.stop(); // await để đảm bảo audio dừng hẳn
+    // _onTtsCancelled sẽ fire nhưng state đã là paused → không làm gì thêm
   }
 
   Future<void> stop() async {
@@ -215,11 +216,7 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
     if (kIsWeb) return;
     state = state.copyWith(speed: speed);
     await _tts.setSpeechRate(_toTtsRate(speed));
-    // Nếu đang play → restart đoạn hiện tại với speed mới
-    if (state.isPlaying) {
-      await _tts.stop();
-      await _playFrom(state.currentIdx);
-    }
+    // Không restart — speed áp dụng từ đoạn tiếp theo, tránh đọc lại từ đầu
   }
 
   // ── Sleep timer ────────────────────────────────────────────────────────────
