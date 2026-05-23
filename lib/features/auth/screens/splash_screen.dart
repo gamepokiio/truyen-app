@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/auth/auth_provider.dart';
@@ -23,7 +23,7 @@ class SplashScreen extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.menu_book_rounded, size: 72, color: Color(0xFF22D3EE)),
+            const Icon(Icons.menu_book_rounded, size: 72, color: Color(0xFF1E3A8A)),
             const SizedBox(height: 16),
             const Text(
               'TruyenCV',
@@ -36,7 +36,7 @@ class SplashScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 40),
             if (authAsync.isLoading)
-              const CircularProgressIndicator(color: Color(0xFF22D3EE)),
+              const CircularProgressIndicator(color: Color(0xFF1E3A8A)),
           ],
         ),
       ),

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
@@ -62,6 +63,26 @@ final _fullNovelsProvider = FutureProvider<List<Novel>>((ref) async {
   return filterNovels(data.map(Novel.fromJson).toList());
 });
 
+/// Ngôn Tình — genre ID 19
+final _nuCuongProvider = FutureProvider<List<Novel>>((ref) async {
+  final api = NovelApi(ref.read(cachedDioProvider));
+  final data = await api.getNovels(
+    page: 1, perPage: 19, genreId: 19,
+    orderby: 'modified', order: 'desc',
+  );
+  return filterNovels(data.map(Novel.fromJson).toList());
+});
+
+/// Đề Cử Convert — genre ID 33
+final _convertProvider = FutureProvider<List<Novel>>((ref) async {
+  final api = NovelApi(ref.read(cachedDioProvider));
+  final data = await api.getNovels(
+    page: 1, perPage: 19, genreId: 33,
+    orderby: 'modified', order: 'desc',
+  );
+  return filterNovels(data.map(Novel.fromJson).toList());
+});
+
 /// Đề cử — genre ID 639
 const _kDeucuGenreId = 639;
 
@@ -76,10 +97,9 @@ final _nominatedProvider = FutureProvider<List<Novel>>((ref) async {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const _teal     = Color(0xFF22D3EE);
-const _tealEnd  = Color(0xFF2DD4BF);
-const _textPrimary   = Color(0xFF1A1A1A);
-const _textSecondary = Color(0xFF757575);
+const _accent        = Color(0xFF1E3A8A); // navy chủ đạo
+const _textPrimary   = Color(0xFF0F172A); // đen xanh đậm
+const _textSecondary = Color(0xFF6B7280); // xám trung tính
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
@@ -91,16 +111,45 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  final _heroPageCtrl       = PageController();
-  final _latestScrollCtrl    = ScrollController();
+  final _heroPageCtrl        = PageController(viewportFraction: 0.93);
+  final _nuCuongScrollCtrl   = ScrollController();
+  final _convertScrollCtrl   = ScrollController();
   final _recommendScrollCtrl = ScrollController();
   final _fullScrollCtrl      = ScrollController();
   int _heroPage = 0;
+  Timer? _autoPlayTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleNext();
+  }
+
+  /// Lên lịch slide tiếp theo sau 4 giây (single Timer, tự tái lịch).
+  void _scheduleNext() {
+    _autoPlayTimer?.cancel();
+    _autoPlayTimer = Timer(const Duration(seconds: 4), _autoAdvance);
+  }
+
+  void _autoAdvance() {
+    if (!mounted || !_heroPageCtrl.hasClients) return;
+    final novels = ref.read(_hayNovelsProvider).valueOrNull;
+    if (novels == null || novels.isEmpty) { _scheduleNext(); return; }
+    final next = (_heroPage + 1) % novels.length;
+    _heroPageCtrl.animateToPage(
+      next,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
+    );
+    _scheduleNext(); // lên lịch slide tiếp ngay sau khi trigger animation
+  }
 
   @override
   void dispose() {
+    _autoPlayTimer?.cancel();
     _heroPageCtrl.dispose();
-    _latestScrollCtrl.dispose();
+    _nuCuongScrollCtrl.dispose();
+    _convertScrollCtrl.dispose();
     _recommendScrollCtrl.dispose();
     _fullScrollCtrl.dispose();
     super.dispose();
@@ -110,6 +159,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget build(BuildContext context) {
     final latestAsync    = ref.watch(_latestProvider);
     final hayAsync       = ref.watch(_hayNovelsProvider);
+    final nuCuongAsync   = ref.watch(_nuCuongProvider);
+    final convertAsync   = ref.watch(_convertProvider);
     final nominatedAsync = ref.watch(_nominatedProvider);
     final randomAsync    = ref.watch(_randomNovelsProvider);
     final fullAsync      = ref.watch(_fullNovelsProvider);
@@ -130,7 +181,245 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
 
-          // ── Category shortcuts (KHÔNG sticky, nằm ngoài header) ────────
+          // ── Hero Carousel (thể loại Hay, 6 truyện) ─────────────────────
+          SliverToBoxAdapter(
+            child: hayAsync.when(
+              loading: () => const SizedBox(
+                height: 246, // 220 card + 6 gap + 4×5 dots area
+                child: Center(child: CircularProgressIndicator(color: _accent)),
+              ),
+              error: (_, __) => const _SectionError(),
+              data: (novels) {
+                if (novels.isEmpty) return const SizedBox.shrink();
+                return Column(
+                  children: [
+                    SizedBox(
+                      height: 220,
+                      child: PageView.builder(
+                        controller: _heroPageCtrl,
+                        itemCount: novels.length,
+                        onPageChanged: (i) {
+                          setState(() => _heroPage = i);
+                          _scheduleNext(); // reset đếm ngược sau mỗi lần đổi slide
+                        },
+                        itemBuilder: (_, i) {
+                          final n = novels[i];
+                          return AnimatedBuilder(
+                            animation: _heroPageCtrl,
+                            builder: (context, child) {
+                              double scale = 0.96;
+                              if (_heroPageCtrl.position.haveDimensions) {
+                                final diff = (_heroPageCtrl.page! - i).abs();
+                                scale = (1.0 - diff * 0.04).clamp(0.96, 1.0);
+                              } else if (i == 0) {
+                                scale = 1.0;
+                              }
+                              return Transform.scale(scale: scale, child: child);
+                            },
+                            child: GestureDetector(
+                              onTap: () => context.push('/novel/${n.id}'),
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 3),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    children: [
+                                      n.coverUrl != null
+                                          ? CachedNetworkImage(
+                                              imageUrl: n.coverUrl!,
+                                              fit: BoxFit.cover,
+                                              placeholder: (_, __) =>
+                                                  Container(color: Colors.grey.shade300),
+                                              errorWidget: (_, __, ___) =>
+                                                  Container(color: Colors.grey.shade300),
+                                            )
+                                          : Container(color: Colors.grey.shade300),
+                                      // Gradient overlay
+                                      Container(
+                                        decoration: const BoxDecoration(
+                                          gradient: LinearGradient(
+                                            begin: Alignment.topCenter,
+                                            end: Alignment.bottomCenter,
+                                            colors: [
+                                              Colors.transparent,
+                                              Colors.black54,
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                      // Title overlay
+                                      Positioned(
+                                        bottom: 12, left: 12, right: 12,
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(n.title,
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 15)),
+                                            if (n.latestChapterTitle != null)
+                                              Text(n.latestChapterTitle!,
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: const TextStyle(
+                                                      color: Colors.white70,
+                                                      fontSize: 11)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // Pagination dots
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(novels.length, (i) => AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        margin: const EdgeInsets.symmetric(horizontal: 2),
+                        width: _heroPage == i ? 16 : 6,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: _heroPage == i ? _accent : Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      )),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+
+          // ── Mới nhất (thumbnail strip + featured card) ─────────────────
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          SliverToBoxAdapter(
+            child: _SectionHeader(
+              title: 'Mới nhất',
+              icon: Icons.autorenew_rounded,
+              onMore: () => context.push('/browse'),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: latestAsync.when(
+              loading: () => const SizedBox(
+                  height: 290,
+                  child: Center(
+                      child: CircularProgressIndicator(color: _accent, strokeWidth: 2))),
+              error: (_, __) => const _SectionError(),
+              data: (novels) {
+                if (novels.isEmpty) return const SizedBox.shrink();
+                return _NewestSection(novels: novels);
+              },
+            ),
+          ),
+
+          // ── Ngôn Tình ─────────────────────────────────────────────────
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          SliverToBoxAdapter(
+            child: _SectionHeader(
+              title: 'Ngôn Tình',
+              icon: Icons.female_rounded,
+              onMore: () => context.push('/browse',
+                  extra: const {'genreId': 19, 'label': 'Ngôn Tình'}),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: nuCuongAsync.when(
+              loading: () => const SizedBox(
+                  height: 195,
+                  child: Center(
+                      child: CircularProgressIndicator(color: _accent, strokeWidth: 2))),
+              error: (_, __) => const _SectionError(),
+              data: (novels) {
+                if (novels.isEmpty) return const SizedBox.shrink();
+                return SizedBox(
+                  height: 195,
+                  child: Listener(
+                    onPointerSignal: (event) {
+                      if (event is PointerScrollEvent && _nuCuongScrollCtrl.hasClients) {
+                        final offset = (_nuCuongScrollCtrl.offset + event.scrollDelta.dy)
+                            .clamp(0.0, _nuCuongScrollCtrl.position.maxScrollExtent);
+                        _nuCuongScrollCtrl.jumpTo(offset);
+                      }
+                    },
+                    child: SingleChildScrollView(
+                      controller: _nuCuongScrollCtrl,
+                      scrollDirection: Axis.horizontal,
+                      primary: false,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                      child: Row(
+                        children: novels.asMap().entries
+                            .map((e) => _RankedNovelCard(novel: e.value, rank: e.key + 1))
+                            .toList(),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // ── Đề Cử Convert ─────────────────────────────────────────────
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
+          SliverToBoxAdapter(
+            child: _SectionHeader(
+              title: 'Đề Cử Convert',
+              icon: Icons.translate_rounded,
+              onMore: () => context.push('/browse',
+                  extra: const {'genreId': 33, 'label': 'Đề Cử Convert'}),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: convertAsync.when(
+              loading: () => const SizedBox(
+                  height: 195,
+                  child: Center(
+                      child: CircularProgressIndicator(color: _accent, strokeWidth: 2))),
+              error: (_, __) => const _SectionError(),
+              data: (novels) {
+                if (novels.isEmpty) return const SizedBox.shrink();
+                return SizedBox(
+                  height: 195,
+                  child: Listener(
+                    onPointerSignal: (event) {
+                      if (event is PointerScrollEvent && _convertScrollCtrl.hasClients) {
+                        final offset = (_convertScrollCtrl.offset + event.scrollDelta.dy)
+                            .clamp(0.0, _convertScrollCtrl.position.maxScrollExtent);
+                        _convertScrollCtrl.jumpTo(offset);
+                      }
+                    },
+                    child: SingleChildScrollView(
+                      controller: _convertScrollCtrl,
+                      scrollDirection: Axis.horizontal,
+                      primary: false,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                      child: Row(
+                        children: novels.asMap().entries
+                            .map((e) => _RankedNovelCard(novel: e.value, rank: e.key + 1))
+                            .toList(),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+
+          // ── Category shortcuts ─────────────────────────────────────────
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
           SliverToBoxAdapter(
             child: Container(
               color: Colors.white,
@@ -187,196 +476,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
 
-          // ── Hero Carousel (thể loại Hay, 6 truyện) ─────────────────────
-          SliverToBoxAdapter(
-            child: hayAsync.when(
-              loading: () => const SizedBox(
-                height: 200,
-                child: Center(child: CircularProgressIndicator(color: _teal)),
-              ),
-              error: (_, __) => const _SectionError(),
-              data: (novels) {
-                if (novels.isEmpty) return const SizedBox.shrink();
-                return Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: Column(
-                    children: [
-                      AspectRatio(
-                        aspectRatio: 16 / 9,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: PageView.builder(
-                            controller: _heroPageCtrl,
-                            itemCount: novels.length,
-                            onPageChanged: (i) => setState(() => _heroPage = i),
-                            itemBuilder: (_, i) {
-                              final n = novels[i];
-                              return GestureDetector(
-                                onTap: () => context.push('/novel/${n.id}'),
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  children: [
-                                    n.coverUrl != null
-                                        ? CachedNetworkImage(
-                                            imageUrl: n.coverUrl!,
-                                            fit: BoxFit.cover,
-                                            placeholder: (_, __) =>
-                                                Container(color: Colors.grey.shade300),
-                                            errorWidget: (_, __, ___) =>
-                                                Container(color: Colors.grey.shade300),
-                                          )
-                                        : Container(color: Colors.grey.shade300),
-                                    // Gradient overlay
-                                    Container(
-                                      decoration: const BoxDecoration(
-                                        gradient: LinearGradient(
-                                          begin: Alignment.topCenter,
-                                          end: Alignment.bottomCenter,
-                                          colors: [
-                                            Colors.transparent,
-                                            Colors.black54,
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    // Title overlay
-                                    Positioned(
-                                      bottom: 12, left: 12, right: 12,
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(n.title,
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 15)),
-                                          if (n.latestChapterTitle != null)
-                                            Text(n.latestChapterTitle!,
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: const TextStyle(
-                                                    color: Colors.white70,
-                                                    fontSize: 11)),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      // Pagination dots
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: List.generate(novels.length, (i) => AnimatedContainer(
-                          duration: const Duration(milliseconds: 250),
-                          margin: const EdgeInsets.symmetric(horizontal: 2),
-                          width: _heroPage == i ? 16 : 6,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: _heroPage == i ? _teal : Colors.grey.shade300,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        )),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // ── Mới nhất (3 hàng cố định, scroll ngang ~4 cột/view) ────────
-          const SliverToBoxAdapter(child: SizedBox(height: 20)),
-          SliverToBoxAdapter(
-            child: _SectionHeader(
-              title: 'Mới nhất',
-              icon: Icons.autorenew_rounded,   // vòng tròn mũi tên = cập nhật mới
-              onMore: () => context.push('/browse'),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: latestAsync.when(
-              loading: () => const SizedBox(
-                  height: 240,
-                  child: Center(
-                      child: CircularProgressIndicator(color: _teal, strokeWidth: 2))),
-              error: (_, __) => const _SectionError(),
-              data: (novels) {
-                if (novels.isEmpty) return const SizedBox.shrink();
-                // list-style item: [50×68 cover | title + time]
-                // mỗi "cột" ngang chứa 3 item xếp dọc
-                const double itemH  = 82;  // 68 cover + padding trên dưới
-                const double rowGap = 10;
-                const double colW   = 162; // 50 cover + 8 gap + ~104 text
-                const double colGap = 12;
-                const double gridH  = 3 * itemH + 2 * rowGap; // 266
-
-                final numCols = (novels.length / 3).ceil();
-
-                return SizedBox(
-                  height: gridH,
-                  // Listener: bắt mouse wheel trên web → convert sang horizontal scroll
-                  child: Listener(
-                    onPointerSignal: (event) {
-                      if (event is PointerScrollEvent &&
-                          _latestScrollCtrl.hasClients) {
-                        final offset = (_latestScrollCtrl.offset +
-                                event.scrollDelta.dy)
-                            .clamp(0.0,
-                                _latestScrollCtrl.position.maxScrollExtent);
-                        _latestScrollCtrl.jumpTo(offset);
-                      }
-                    },
-                    child: SingleChildScrollView(
-                      controller: _latestScrollCtrl,
-                      scrollDirection: Axis.horizontal,
-                      primary: false,
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: List.generate(numCols, (col) {
-                          return Padding(
-                            padding: EdgeInsets.only(
-                                right: col < numCols - 1 ? colGap : 0),
-                            child: SizedBox(
-                              width: colW,
-                              child: Column(
-                                children: List.generate(3, (row) {
-                                  final idx = col * 3 + row;
-                                  if (idx >= novels.length) {
-                                    return SizedBox(
-                                        height: itemH + (row < 2 ? rowGap : 0));
-                                  }
-                                  return Padding(
-                                    padding: EdgeInsets.only(
-                                        bottom: row < 2 ? rowGap : 0),
-                                    child: SizedBox(
-                                      height: itemH,
-                                      child: _LatestCard(novel: novels[idx]),
-                                    ),
-                                  );
-                                }),
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-
           // ── Đề cử (3-col grid) ─────────────────────────────────────────
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 4)),
           SliverToBoxAdapter(
             child: Container(
               color: Colors.white,
@@ -394,7 +495,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     loading: () => const Padding(
                       padding: EdgeInsets.all(32),
                       child: Center(
-                          child: CircularProgressIndicator(color: _teal, strokeWidth: 2)),
+                          child: CircularProgressIndicator(color: _accent, strokeWidth: 2)),
                     ),
                     error: (_, __) => const _SectionError(),
                     data: (novels) {
@@ -420,7 +521,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
 
           // ── Truyện hay nên đọc (random, cùng layout Mới nhất) ──────────
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
           SliverToBoxAdapter(
             child: _SectionHeader(
               title: 'Truyện nên đọc',
@@ -434,7 +535,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   height: 266,
                   child: Center(
                       child: CircularProgressIndicator(
-                          color: _teal, strokeWidth: 2))),
+                          color: _accent, strokeWidth: 2))),
               error: (_, __) => const _SectionError(),
               data: (novels) {
                 if (novels.isEmpty) return const SizedBox.shrink();
@@ -502,7 +603,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
 
           // ── Truyện Full (manga_status=completed, server-side filter) ──────
-          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          const SliverToBoxAdapter(child: SizedBox(height: 12)),
           SliverToBoxAdapter(
             child: _SectionHeader(
               title: 'Truyện Full',
@@ -517,7 +618,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   height: 210,
                   child: Center(
                       child: CircularProgressIndicator(
-                          color: _teal, strokeWidth: 2))),
+                          color: _accent, strokeWidth: 2))),
               error: (err, __) => Padding(
                 padding: const EdgeInsets.all(16),
                 child: Text('Lỗi: $err',
@@ -564,6 +665,246 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ),
 
           const SliverPadding(padding: EdgeInsets.only(bottom: 32)),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── _NewestSection — thumbnail strip + featured card ────────────────────────
+
+class _NewestSection extends StatefulWidget {
+  final List<Novel> novels;
+  const _NewestSection({required this.novels});
+
+  @override
+  State<_NewestSection> createState() => _NewestSectionState();
+}
+
+class _NewestSectionState extends State<_NewestSection> {
+  int _selectedIdx = 0;
+  final _stripCtrl = ScrollController();
+
+  @override
+  void dispose() {
+    _stripCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final novels  = widget.novels;
+    final selected = novels[_selectedIdx];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Thumbnail strip ──────────────────────────────────────────
+        SizedBox(
+          height: 84,
+          child: Listener(
+            onPointerSignal: (event) {
+              if (event is PointerScrollEvent && _stripCtrl.hasClients) {
+                final offset = (_stripCtrl.offset + event.scrollDelta.dy)
+                    .clamp(0.0, _stripCtrl.position.maxScrollExtent);
+                _stripCtrl.jumpTo(offset);
+              }
+            },
+            child: ListView.builder(
+              controller: _stripCtrl,
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              physics: const BouncingScrollPhysics(),
+              itemCount: novels.length,
+              itemBuilder: (_, i) => _ThumbItem(
+                novel: novels[i],
+                selected: i == _selectedIdx,
+                onTap: () => setState(() => _selectedIdx = i),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        // ── Featured detail card ─────────────────────────────────────
+        AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: _FeaturedCard(
+            key: ValueKey(selected.id),
+            novel: selected,
+            onRead: () => context.push('/novel/${selected.id}'),
+            onAdd:  () => context.push('/novel/${selected.id}'),
+          ),
+        ),
+        const SizedBox(height: 4),
+      ],
+    );
+  }
+}
+
+// ── Thumbnail item ─────────────────────────────────────────────────────────────
+
+class _ThumbItem extends StatelessWidget {
+  final Novel novel;
+  final bool selected;
+  final VoidCallback onTap;
+  const _ThumbItem({required this.novel, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        margin: const EdgeInsets.only(right: 7, top: 3, bottom: 3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: selected ? _accent : Colors.transparent,
+            width: 2,
+          ),
+          boxShadow: selected
+              ? [BoxShadow(color: _accent.withValues(alpha: 0.22), blurRadius: 5, offset: const Offset(0, 2))]
+              : [],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: novel.coverUrl != null
+              ? CachedNetworkImage(
+                  imageUrl: novel.coverUrl!,
+                  width: 50, height: 70,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) =>
+                      Container(width: 50, height: 70, color: Colors.grey.shade200),
+                  errorWidget: (_, __, ___) =>
+                      Container(width: 50, height: 70, color: Colors.grey.shade200,
+                          child: const Icon(Icons.menu_book, color: Colors.grey, size: 18)),
+                )
+              : Container(width: 50, height: 70, color: Colors.grey.shade200),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Featured card ──────────────────────────────────────────────────────────────
+
+class _FeaturedCard extends StatelessWidget {
+  final Novel novel;
+  final VoidCallback onRead;
+  final VoidCallback onAdd;
+  const _FeaturedCard({super.key, required this.novel, required this.onRead, required this.onAdd});
+
+  @override
+  Widget build(BuildContext context) {
+    final genre = novel.genres.isNotEmpty ? novel.genres.first.name : null;
+    // Ưu tiên excerpt → description → null
+    final desc = (novel.excerpt?.isNotEmpty == true)
+        ? novel.excerpt!
+        : (novel.description?.isNotEmpty == true)
+            ? novel.description!
+            : null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Left: info ───────────────────────────────────────────
+          Expanded(
+            child: SizedBox(
+              height: 175,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.max,
+                children: [
+                // Genre chip
+                if (genre != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _accent.withValues(alpha: 0.09),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(genre,
+                        style: const TextStyle(
+                            fontSize: 10,
+                            color: _accent,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.2)),
+                  ),
+                const SizedBox(height: 7),
+                // Title
+                Text(novel.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: _textPrimary,
+                        height: 1.3)),
+                const SizedBox(height: 6),
+                // Mô tả (excerpt hoặc description)
+                if (desc != null)
+                  Text(desc,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 12,
+                          color: _textSecondary,
+                          height: 1.45)),
+                const Spacer(),
+                // Buttons
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: onRead,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: _textPrimary,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Text('Đọc',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    GestureDetector(
+                      onTap: onAdd,
+                      child: Container(
+                        width: 34, height: 34,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.grey.shade300, width: 1.5),
+                        ),
+                        child: const Icon(Icons.add_rounded, size: 18, color: _textPrimary),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ), // SizedBox
+          ), // Expanded
+          const SizedBox(width: 12),
+          // ── Right: cover ─────────────────────────────────────────
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: novel.coverUrl != null
+                ? CachedNetworkImage(
+                    imageUrl: novel.coverUrl!,
+                    width: 112, height: 175,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) =>
+                        Container(width: 112, height: 175, color: Colors.grey.shade200),
+                    errorWidget: (_, __, ___) =>
+                        Container(width: 112, height: 175, color: Colors.grey.shade200,
+                            child: const Icon(Icons.menu_book, color: Colors.grey)),
+                  )
+                : Container(width: 112, height: 175, color: Colors.grey.shade200),
+          ),
         ],
       ),
     );
@@ -685,7 +1026,7 @@ class _CategoryBtn extends StatelessWidget {
                     blurRadius: 6, offset: const Offset(0, 2)),
               ],
             ),
-            child: Icon(icon, color: _teal, size: 26),
+            child: Icon(icon, color: const Color(0xFF1E3A8A), size: 26),
           ),
           const SizedBox(height: 5),
           Text(label,
@@ -730,69 +1071,67 @@ class _HomeHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    // Chỉ còn gradient header row, categories đã tách ra ngoài
     return Container(
-          height: statusBarHeight + _toolbarH,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF22D3EE), Color(0xFF2DD4BF)],
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
+      height: statusBarHeight + _toolbarH,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          bottom: BorderSide(color: Colors.grey.shade200, width: 1),
+        ),
+      ),
+      padding: EdgeInsets.only(top: statusBarHeight, left: 14, right: 4),
+      child: Row(
+        children: [
+          // App logo icon — navy
+          Container(
+            width: 32, height: 32,
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E3A8A),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.menu_book_rounded, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 8),
+          const Text('TruyenCV',
+              style: TextStyle(
+                  color: Color(0xFF0F172A), fontSize: 18,
+                  fontFamily: 'Orbitron',
+                  fontWeight: FontWeight.bold, letterSpacing: 0.3)),
+          const SizedBox(width: 10),
+          // Search bar
+          Expanded(
+            child: GestureDetector(
+              onTap: onSearch,
+              child: Container(
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: const Row(
+                  children: [
+                    Icon(Icons.search, color: Color(0xFF6B7280), size: 17),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text('Tìm kiếm truyện...',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(color: Color(0xFF9CA3AF), fontSize: 13)),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-          padding: EdgeInsets.only(top: statusBarHeight, left: 14, right: 4),
-          child: Row(
-            children: [
-              // App logo icon
-              Container(
-                width: 32, height: 32,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.menu_book_rounded, color: Colors.white, size: 20),
-              ),
-              const SizedBox(width: 8),
-              const Text('TruyenCV',
-                  style: TextStyle(
-                      color: Colors.white, fontSize: 18,
-                      fontFamily: 'Orbitron',
-                      fontWeight: FontWeight.bold, letterSpacing: 0.3)),
-              const SizedBox(width: 10),
-              // Search bar
-              Expanded(
-                child: GestureDetector(
-                  onTap: onSearch,
-                  child: Container(
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.25),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: const Row(
-                      children: [
-                        Icon(Icons.search, color: Colors.white, size: 17),
-                        SizedBox(width: 6),
-                        Expanded(
-                          child: Text('Tìm kiếm truyện...',
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(color: Colors.white70, fontSize: 13)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              // Filter icon
-              IconButton(
-                icon: const Icon(Icons.tune, color: Colors.white, size: 22),
-                onPressed: onBrowse,
-                padding: const EdgeInsets.symmetric(horizontal: 10),
-              ),
-            ],
+          // Filter icon
+          IconButton(
+            icon: const Icon(Icons.tune, color: Color(0xFF0F172A), size: 22),
+            onPressed: onBrowse,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
           ),
-        );
+        ],
+      ),
+    );
   }
 
   @override
@@ -817,26 +1156,9 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+      padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
       child: Row(
         children: [
-          if (icon != null) ...[
-            // Icon nền teal + icon trắng — đồng bộ màu app
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF22D3EE), Color(0xFF2DD4BF)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Icon(icon, size: 18, color: Colors.white),
-            ),
-            const SizedBox(width: 8),
-          ],
           Text(title,
               style: const TextStyle(
                   fontSize: 16,
@@ -845,7 +1167,7 @@ class _SectionHeader extends StatelessWidget {
           const Spacer(),
           GestureDetector(
             onTap: onMore,
-            child: const Icon(Icons.chevron_right, size: 22, color: _teal),
+            child: const Icon(Icons.chevron_right, size: 22, color: _accent),
           ),
         ],
       ),
@@ -976,6 +1298,119 @@ class _GridNovelCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// ─── _RankedNovelCard — cover dọc + rank badge + title overlay ───────────────
+
+class _RankedNovelCard extends StatelessWidget {
+  final Novel novel;
+  final int rank;
+  const _RankedNovelCard({required this.novel, required this.rank});
+
+  static Color _badgeColor(int rank) {
+    if (rank == 1) return const Color(0xFFFFB800); // vàng
+    if (rank == 2) return const Color(0xFF9E9E9E); // bạc
+    if (rank == 3) return const Color(0xFFFF7043); // đồng
+    return const Color(0xFF424242);                 // tối
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const double cardW = 128;
+    const double cardH = 185;
+
+    return GestureDetector(
+      onTap: () => context.push('/novel/${novel.id}'),
+      child: Container(
+        width: cardW,
+        margin: const EdgeInsets.only(right: 10),
+        child: Stack(
+          children: [
+            // ── Cover ─────────────────────────────────────────────────
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: novel.coverUrl != null
+                  ? CachedNetworkImage(
+                      imageUrl: novel.coverUrl!,
+                      width: cardW, height: cardH,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => _placeholder(cardW, cardH),
+                      errorWidget: (_, __, ___) => _placeholder(cardW, cardH),
+                    )
+                  : _placeholder(cardW, cardH),
+            ),
+            // ── Gradient overlay phía dưới ─────────────────────────────
+            Positioned.fill(
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Container(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Colors.transparent, Colors.black87],
+                      stops: [0.45, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // ── Title ─────────────────────────────────────────────────
+            Positioned(
+              bottom: 8, left: 7, right: 7,
+              child: Text(
+                novel.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  height: 1.35,
+                ),
+              ),
+            ),
+            // ── Rank badge ────────────────────────────────────────────
+            Positioned(
+              top: 6, left: 6,
+              child: Container(
+                width: 26, height: 26,
+                decoration: BoxDecoration(
+                  color: _badgeColor(rank),
+                  borderRadius: BorderRadius.circular(7),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.25),
+                      blurRadius: 4, offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Center(
+                  child: Text(
+                    '$rank',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static Widget _placeholder(double w, double h) => Container(
+    width: w, height: h,
+    decoration: BoxDecoration(
+      color: Color(0xFFD0C4F7),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: const Icon(Icons.menu_book, color: Colors.white, size: 28),
+  );
 }
 
 // ─── Section error widget ─────────────────────────────────────────────────────

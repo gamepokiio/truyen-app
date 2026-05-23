@@ -616,10 +616,10 @@ class _SupportTabState extends State<_SupportTab> {
     final type    = _kRequestTypes[_selectedType];
     final subject = '[TruyenCV App] ${type.emailSubject}: $title';
     final body    = 'Loại yêu cầu: ${type.label}\nTiêu đề: $title\n\nNội dung:\n$content';
-    final uri     = Uri(
-      scheme: 'mailto',
-      path:   _supportEmail,
-      queryParameters: {'subject': subject, 'body': body},
+    final uri = Uri.parse(
+      'mailto:$_supportEmail'
+      '?subject=${Uri.encodeComponent(subject)}'
+      '&body=${Uri.encodeComponent(body)}',
     );
 
     if (await canLaunchUrl(uri)) {

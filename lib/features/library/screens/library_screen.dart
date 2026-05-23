@@ -1,11 +1,11 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/services/library_service.dart';
 import '../../../core/theme/app_theme.dart';
 
-const _teal = Color(0xFF22D3EE);
+const _teal = Color(0xFF1E3A8A);
 
 class LibraryScreen extends ConsumerStatefulWidget {
   const LibraryScreen({super.key});

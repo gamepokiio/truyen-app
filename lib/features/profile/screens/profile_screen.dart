@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -15,7 +15,7 @@ final _appVersionProvider = FutureProvider<String>((ref) async {
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
   static const _bg   = Color(0xFFF8F9FA);
 
   @override
@@ -51,7 +51,7 @@ class _ProfileBody extends ConsumerWidget {
   final AuthState auth;
   const _ProfileBody({required this.auth});
 
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

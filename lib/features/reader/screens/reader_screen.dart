@@ -1,3 +1,4 @@
+﻿import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,6 +12,8 @@ import '../../../shared/models/novel_model.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/services/library_service.dart';
 import '../../../core/services/ad_service.dart';
+import '../../../core/services/audio_reader_service.dart';
+import 'audio_player_screen.dart';
 import '../../novel/screens/novel_detail_screen.dart'
     show ReadingProgressService, chapterCountProvider,
          novelDetailInitialTabProvider, chapterPageProvider, ChapterPageState;
@@ -404,8 +407,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 theme: theme,
                 title: _formattedTitle,
                 onBack: () => context.pop(),
-                onSettings: () =>
-                    _showSettingsSheet(context, ref, settings),
+                onSettings: () => _showSettingsSheet(context, ref, settings),
+                onAudio:   () => _openAudioPlayer(context, ref),
               ),
             ),
 
@@ -460,14 +463,70 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         .toList();
   }
 
+  Future<void> _openAudioPlayer(BuildContext context, WidgetRef ref) async {
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Tính năng nghe audio chỉ hỗ trợ trên Android & iOS'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+    // Lấy nội dung chương đã cached
+    final chapterAsync = ref.read(_chapterContentProvider(widget.chapterId));
+    final chapter = chapterAsync.valueOrNull;
+    if (chapter == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Đang tải nội dung, vui lòng thử lại...')),
+      );
+      return;
+    }
+    final novelTitle = ref.read(novelMetaCacheProvider)[widget.novelId]?.title ?? '';
+    final content    = chapter.content ?? '';
+
+    // Load chapter vào AudioReaderNotifier (chưa auto-play — đợi sau ad)
+    await ref.read(audioReaderProvider.notifier).loadChapter(
+      content:      content,
+      novelTitle:   novelTitle,
+      chapterTitle: widget.chapterTitle,
+      coverUrl:     ref.read(novelMetaCacheProvider)[widget.novelId]?.coverUrl,
+      autoPlay:     false, // Ad sẽ show trước, sau đó mới play
+    );
+
+    // Trigger ad khi mở audio. Sau khi ad đóng → bắt đầu play
+    final notifier = ref.read(audioReaderProvider.notifier);
+    final adShown = AdService.instance.onAudioInteraction(
+      onDismissed: () => notifier.play(),
+    );
+    // Không có ad → play ngay
+    if (!adShown) notifier.play();
+
+    if (context.mounted) {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => DraggableScrollableSheet(
+          initialChildSize: 0.95,
+          minChildSize:     0.6,
+          maxChildSize:     0.95,
+          builder: (_, __) => const AudioPlayerScreen(),
+        ),
+      );
+    }
+  }
+
   void _showSettingsSheet(
       BuildContext context, WidgetRef ref, _ReaderSettings settings) {
+    final novelTitle = ref.read(novelMetaCacheProvider)[widget.novelId]?.title ?? '';
     showModalBottomSheet(
       context: context,
       builder: (_) => _ReaderSettingsSheet(
         chapterId: widget.chapterId,
         chapterTitle: widget.chapterTitle,
         chapterNumber: widget.chapterNumber,
+        novelTitle: novelTitle,
       ),
     );
   }
@@ -475,21 +534,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
 // ─── Top Bar ──────────────────────────────────────────────────────────────────
 
-class _TopBar extends StatelessWidget {
+class _TopBar extends ConsumerWidget {
   final ReaderTheme theme;
   final String title;
   final VoidCallback onBack;
   final VoidCallback onSettings;
+  final VoidCallback onAudio;
 
   const _TopBar({
     required this.theme,
     required this.title,
     required this.onBack,
     required this.onSettings,
+    required this.onAudio,
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final audioState  = ref.watch(audioReaderProvider);
+    final isPlaying   = audioState.isPlaying;
+
     return Container(
       decoration: BoxDecoration(
         color: theme.bg.withValues(alpha: 0.96),
@@ -518,6 +582,19 @@ class _TopBar extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
+              ),
+              // 🎧 Audio button — highlight khi đang phát
+              IconButton(
+                icon: Icon(
+                  isPlaying
+                      ? Icons.headphones_rounded
+                      : Icons.headphones_outlined,
+                  color: isPlaying ? const Color(0xFF5B8DEF) : theme.text,
+                  size: 20,
+                ),
+                onPressed: onAudio,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
               ),
               IconButton(
                 icon: Icon(Icons.settings_outlined, color: theme.text, size: 20),
@@ -711,7 +788,7 @@ class _ChapterFooter extends StatelessWidget {
                     label: const Icon(Icons.chevron_right_rounded,
                         size: 18),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF22D3EE),
+                      backgroundColor: const Color(0xFF1E3A8A),
                       foregroundColor: Colors.white,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(
@@ -748,7 +825,7 @@ class _ChapterListSheet extends ConsumerStatefulWidget {
 }
 
 class _ChapterListSheetState extends ConsumerState<_ChapterListSheet> {
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
 
   @override
   Widget build(BuildContext context) {
@@ -842,7 +919,7 @@ class _ChapterListContent extends ConsumerStatefulWidget {
 }
 
 class _ChapterListContentState extends ConsumerState<_ChapterListContent> {
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
 
   @override
   void initState() {
@@ -1006,11 +1083,13 @@ class _ReaderSettingsSheet extends ConsumerWidget {
   final int chapterId;
   final String chapterTitle;
   final int chapterNumber;
+  final String novelTitle;
 
   const _ReaderSettingsSheet({
     required this.chapterId,
     required this.chapterTitle,
     required this.chapterNumber,
+    required this.novelTitle,
   });
 
   @override
@@ -1073,7 +1152,7 @@ class _ReaderSettingsSheet extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: s.themeIndex == i
-                            ? const Color(0xFF22D3EE)
+                            ? const Color(0xFF1E3A8A)
                             : Colors.grey[300]!,
                         width: s.themeIndex == i ? 2 : 1,
                       ),
@@ -1103,12 +1182,12 @@ class _ReaderSettingsSheet extends ConsumerWidget {
                     height: 40,
                     decoration: BoxDecoration(
                       color: selected
-                          ? const Color(0xFF22D3EE).withValues(alpha: 0.12)
+                          ? const Color(0xFF1E3A8A).withValues(alpha: 0.12)
                           : Colors.grey[100],
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
                         color: selected
-                            ? const Color(0xFF22D3EE)
+                            ? const Color(0xFF1E3A8A)
                             : Colors.grey[300]!,
                         width: selected ? 2 : 1,
                       ),
@@ -1145,6 +1224,7 @@ class _ReaderSettingsSheet extends ConsumerWidget {
                       builder: (_) => _ChapterReportSheet(
                         chapterNumber: chapterNumber,
                         chapterTitle: chapterTitle,
+                        novelTitle: novelTitle,
                       ),
                     );
                   }
@@ -1171,8 +1251,12 @@ class _ReaderSettingsSheet extends ConsumerWidget {
 class _ChapterReportSheet extends StatefulWidget {
   final int chapterNumber;
   final String chapterTitle;
-  const _ChapterReportSheet(
-      {required this.chapterNumber, required this.chapterTitle});
+  final String novelTitle;
+  const _ChapterReportSheet({
+    required this.chapterNumber,
+    required this.chapterTitle,
+    required this.novelTitle,
+  });
 
   @override
   State<_ChapterReportSheet> createState() => _ChapterReportSheetState();
@@ -1191,14 +1275,14 @@ class _ChapterReportSheetState extends State<_ChapterReportSheet> {
 
   Future<void> _send() async {
     final reason = _selected != null ? _reasons[_selected!] : 'Không rõ';
-    final uri = Uri(
-      scheme: 'mailto',
-      path: 'support@truyencv.io',
-      queryParameters: {
-        'subject':
-            'Báo cáo lỗi chương ${widget.chapterNumber}: ${widget.chapterTitle}',
-        'body': 'Lý do: $reason\n\n(Mô tả thêm nếu có)',
-      },
+    final subject = widget.novelTitle.isNotEmpty
+        ? 'Báo cáo lỗi | ${widget.novelTitle} - Chương ${widget.chapterNumber}: ${widget.chapterTitle}'
+        : 'Báo cáo lỗi chương ${widget.chapterNumber}: ${widget.chapterTitle}';
+    final body    = 'Lý do: $reason\n\n(Mô tả thêm nếu có)';
+    final uri = Uri.parse(
+      'mailto:support@truyencv.io'
+      '?subject=${Uri.encodeComponent(subject)}'
+      '&body=${Uri.encodeComponent(body)}',
     );
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
@@ -1244,7 +1328,7 @@ class _ChapterReportSheetState extends State<_ChapterReportSheet> {
                   title:
                       Text(e.value, style: const TextStyle(fontSize: 14)),
                   onChanged: (v) => setState(() => _selected = v),
-                  activeColor: const Color(0xFF22D3EE),
+                  activeColor: const Color(0xFF1E3A8A),
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                 )),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -20,7 +20,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   bool _loading  = false;
   bool _accepted = false; // checkbox chấp nhận Terms (bắt buộc)
 
-  static const _teal   = Color(0xFF22D3EE);
+  static const _teal   = Color(0xFF1E3A8A);
   static const _bgDark = Color(0xFF0F1923);
 
   @override

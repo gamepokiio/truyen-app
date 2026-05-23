@@ -1,9 +1,9 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../features/browse/widgets/filter_bottom_sheet.dart';
 
-const _teal = Color(0xFF22D3EE);
+const _teal = Color(0xFF1E3A8A);
 
 class GenresScreen extends ConsumerWidget {
   const GenresScreen({super.key});

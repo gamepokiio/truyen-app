@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/api/dio_client.dart';
 import '../../../core/api/novel_api.dart';
@@ -81,7 +81,7 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
   late Set<int> _genreIds;
   late Set<int> _teamIds;
 
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
 
   @override
   void initState() {
@@ -343,7 +343,7 @@ class _Chip extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
 
   const _Chip(
       {required this.label, required this.selected, required this.onTap});

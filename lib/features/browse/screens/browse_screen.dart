@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -205,7 +205,7 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
                   child: Container(
                     width: 8, height: 8,
                     decoration: const BoxDecoration(
-                      color: Color(0xFF22D3EE),
+                      color: Color(0xFF1E3A8A),
                       shape: BoxShape.circle,
                     ),
                   ),

@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const tealStart = Color(0xFF22D3EE);
-  static const tealEnd = Color(0xFF2DD4BF);
-  static const heroBg = Color(0xFF0F1923);
-  static const bgContent = Color(0xFFF8F9FA);
-  static const textPrimary = Color(0xFF1A1A1A);
-  static const textSecondary = Color(0xFF757575);
-  static const cardBg = Colors.white;
+  // ── Brand accent (navy) ────────────────────────────────────────────────────
+  static const accent      = Color(0xFF1E3A8A); // navy chủ đạo
+  static const accentLight = Color(0xFF2563EB); // navy nhạt hơn cho hover/gradient
+  // ── Legacy aliases (giữ để không break các màn hình khác) ─────────────────
+  static const tealStart = accent;
+  static const tealEnd   = accentLight;
+  // ── Neutrals ──────────────────────────────────────────────────────────────
+  static const heroBg        = Color(0xFF0F172A); // dark navy cho overlay
+  static const bgContent     = Color(0xFFF8F9FA); // nền xám nhạt — giữ nguyên
+  static const textPrimary   = Color(0xFF0F172A); // đen xanh đậm
+  static const textSecondary = Color(0xFF6B7280); // xám trung tính
+  static const cardBg        = Colors.white;
 }
 
 class AppTheme {
@@ -15,7 +20,7 @@ class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme.fromSeed(
-        seedColor: AppColors.tealStart,
+        seedColor: AppColors.accent,
         brightness: Brightness.light,
       ),
       scaffoldBackgroundColor: AppColors.bgContent,

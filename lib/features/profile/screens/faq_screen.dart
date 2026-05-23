@@ -1,10 +1,10 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class FaqScreen extends StatelessWidget {
   const FaqScreen({super.key});
 
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
   static const _bg   = Color(0xFFF8F9FA);
 
   static const _items = [
@@ -163,7 +163,7 @@ class _FaqTile extends StatelessWidget {
   final _FaqItem item;
   const _FaqTile({required this.item});
 
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
 
   @override
   Widget build(BuildContext context) {

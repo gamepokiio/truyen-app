@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -32,7 +32,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Timer?  _debounce;
   String  _query = '';
 
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
 
   @override
   void initState() {
@@ -174,7 +174,7 @@ class _SearchTile extends StatelessWidget {
   final Novel novel;
   const _SearchTile({required this.novel});
 
-  static const _teal = Color(0xFF22D3EE);
+  static const _teal = Color(0xFF1E3A8A);
 
   @override
   Widget build(BuildContext context) {
@@ -249,7 +249,7 @@ class _SearchTile extends StatelessWidget {
                         horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: isFull
-                          ? const Color(0xFF22D3EE).withValues(alpha: 0.12)
+                          ? const Color(0xFF1E3A8A).withValues(alpha: 0.12)
                           : Colors.orange.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(20),
                     ),

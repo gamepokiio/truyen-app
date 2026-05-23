@@ -2213,13 +2213,11 @@ class _ReportSheetState extends State<_ReportSheet> {
 
   Future<void> _send() async {
     final reason = _selected != null ? _reasons[_selected!] : 'Không rõ';
-    final uri = Uri(
-      scheme: 'mailto',
-      path: 'support@truyencv.io',
-      queryParameters: {
-        'subject': widget.subject,
-        'body': 'Lý do báo cáo: $reason\n\n(Mô tả thêm nếu có)',
-      },
+    final body   = 'Lý do báo cáo: $reason\n\n(Mô tả thêm nếu có)';
+    final uri = Uri.parse(
+      'mailto:support@truyencv.io'
+      '?subject=${Uri.encodeComponent(widget.subject)}'
+      '&body=${Uri.encodeComponent(body)}',
     );
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
@@ -2315,17 +2313,13 @@ class _CommentReportSheetState extends State<_CommentReportSheet> {
   ];
 
   Future<void> _send() async {
-    final reason = _selected != null ? _reasons[_selected!] : 'Không rõ';
-    final uri = Uri(
-      scheme: 'mailto',
-      path: 'support@truyencv.io',
-      queryParameters: {
-        'subject': 'Báo cáo bình luận #${widget.commentId}',
-        'body':
-            'Người dùng: ${widget.authorName}\n'
-            'Lý do: $reason\n\n'
-            '(Mô tả thêm nếu có)',
-      },
+    final reason  = _selected != null ? _reasons[_selected!] : 'Không rõ';
+    final subject = 'Báo cáo bình luận #${widget.commentId}';
+    final body    = 'Người dùng: ${widget.authorName}\nLý do: $reason\n\n(Mô tả thêm nếu có)';
+    final uri = Uri.parse(
+      'mailto:support@truyencv.io'
+      '?subject=${Uri.encodeComponent(subject)}'
+      '&body=${Uri.encodeComponent(body)}',
     );
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
