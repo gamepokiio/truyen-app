@@ -74,7 +74,19 @@ class AdService {
     return false;
   }
 
-  // ── Audio: gọi khi user chủ động tương tác (mở player / play / pause) ───────
+  // ── Audio: gọi khi user mở audio player lần đầu ─────────────────────────────
+  /// Luôn hiển thị ad ngay nếu có (không cần đếm)
+  /// [onDismissed]: callback sau khi ad đóng — để play audio sau ad
+  bool onAudioPlayerOpened({void Function()? onDismissed}) {
+    if (kIsWeb) return false;
+    if (_isAdReady && _interstitialAd != null) {
+      _showAd(onDismissed: onDismissed);
+      return true;
+    }
+    return false;
+  }
+
+  // ── Audio: gọi khi user chủ động play/pause (mỗi 3 lần) ─────────────────────
   /// [onDismissed]: callback sau khi ad đóng — dùng để resume audio nếu cần
   /// Trả về true nếu đã hiển thị ad
   bool onAudioInteraction({void Function()? onDismissed}) {

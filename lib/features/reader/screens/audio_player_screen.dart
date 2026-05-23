@@ -435,35 +435,52 @@ class _SleepTimerRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.timer_outlined, size: 16, color: _textSec),
-          const SizedBox(width: 6),
-          Text('Hẹn giờ tắt${_remainingText()}:',
-              style: TextStyle(fontSize: 13, color: _textSec)),
-          const SizedBox(width: 8),
-          ..._sleepOptions.map((opt) {
-            final selected = state.sleepAfterMin == opt;
-            return GestureDetector(
-              onTap: () => notifier.setSleepTimer(opt),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                margin: const EdgeInsets.only(right: 6),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color:        selected ? _accent : _surface,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Text(_label(opt),
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: selected ? Colors.white : _textSec,
-                        fontWeight: FontWeight.w600)),
+          // Label + countdown
+          Row(
+            children: [
+              Icon(Icons.timer_outlined, size: 15, color: _textSec),
+              const SizedBox(width: 5),
+              Text(
+                'Hẹn giờ tắt${_remainingText()}',
+                style: TextStyle(fontSize: 12, color: _textSec),
               ),
-            );
-          }),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Options — scrollable để không bị tràn
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _sleepOptions.map((opt) {
+                final selected = state.sleepAfterMin == opt;
+                return GestureDetector(
+                  onTap: () => notifier.setSleepTimer(opt),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 160),
+                    margin: const EdgeInsets.only(right: 10),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 7),
+                    decoration: BoxDecoration(
+                      color:        selected ? _accent : _surface,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Text(
+                      _label(opt),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: selected ? Colors.white : _textSec,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
         ],
       ),
     );

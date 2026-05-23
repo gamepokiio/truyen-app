@@ -84,11 +84,17 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
   final FlutterTts _tts = FlutterTts();
   Timer? _sleepTimer;
 
+  // ── TTS rate mapping ───────────────────────────────────────────────────────
+  /// Chuyển speed người dùng (0.5x–2.0x) → TTS speech rate
+  /// iOS: 0.5 = normal (AVSpeechUtteranceDefaultSpeechRate), 1.0 = max
+  /// Android: 1.0 = normal nhưng thực tế cũng nhanh, dùng 0.5 cho nhất quán
+  static double _toTtsRate(double speed) => (speed * 0.5).clamp(0.0, 1.0);
+
   // ── Init TTS engine ────────────────────────────────────────────────────────
   Future<void> _init() async {
     if (kIsWeb) return;
     await _tts.setLanguage('vi-VN');
-    await _tts.setSpeechRate(state.speed);
+    await _tts.setSpeechRate(_toTtsRate(state.speed));
     await _tts.setVolume(1.0);
     await _tts.setPitch(1.0);
 
@@ -144,10 +150,11 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
   Future<void> play() async {
     if (kIsWeb || state.paragraphs.isEmpty) return;
     if (state.isPaused) {
-      await _tts.setSpeechRate(state.speed);
-      await _tts.speak(state.currentText);
+      // Cập nhật UI ngay lập tức trước khi đợi TTS
       state = state.copyWith(status: AudioStatus.playing);
-      _syncAdFlag(); // ← fix: cập nhật flag khi resume từ pause
+      _syncAdFlag();
+      await _tts.setSpeechRate(_toTtsRate(state.speed));
+      await _tts.speak(state.currentText);
     } else {
       await _playFrom(state.currentIdx);
     }
@@ -155,9 +162,10 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
 
   Future<void> pause() async {
     if (kIsWeb) return;
-    await _tts.stop();
+    // Cập nhật UI ngay lập tức — không đợi TTS stop
     state = state.copyWith(status: AudioStatus.paused);
     _syncAdFlag();
+    _tts.stop(); // fire-and-forget cho phản hồi tức thì
   }
 
   Future<void> stop() async {
@@ -205,8 +213,8 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
   // ── Speed ──────────────────────────────────────────────────────────────────
   Future<void> setSpeed(double speed) async {
     if (kIsWeb) return;
-    await _tts.setSpeechRate(speed);
     state = state.copyWith(speed: speed);
+    await _tts.setSpeechRate(_toTtsRate(speed));
     // Nếu đang play → restart đoạn hiện tại với speed mới
     if (state.isPlaying) {
       await _tts.stop();
@@ -252,7 +260,7 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
     }
     state = state.copyWith(status: AudioStatus.playing, currentIdx: idx);
     _syncAdFlag();
-    await _tts.setSpeechRate(state.speed);
+    await _tts.setSpeechRate(_toTtsRate(state.speed));
     await _tts.speak(state.paragraphs[idx]);
   }
 
@@ -262,8 +270,14 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
     if (next < state.paragraphs.length) {
       _playFrom(next);
     } else {
-      // Hết chương
-      state = state.copyWith(status: AudioStatus.stopped, currentIdx: 0);
+      // Hết chương — hủy sleep timer, reset state
+      _sleepTimer?.cancel();
+      state = state.copyWith(
+        status:        AudioStatus.stopped,
+        currentIdx:    0,
+        sleepAfterMin:  null,
+        sleepStartedAt: null,
+      );
       _syncAdFlag();
     }
   }
@@ -278,21 +292,39 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
 
   // ── Text splitting ─────────────────────────────────────────────────────────
   static List<String> _splitParagraphs(String content) {
-    // Tách theo dòng trống hoặc xuống dòng, loại bỏ đoạn rỗng
-    final lines = content
-        .replaceAll('\r\n', '\n')
-        .split('\n')
+    // Bước 1: Block elements → newline trước khi strip tag
+    final text = content
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</div>', caseSensitive: false), '\n')
+        .replaceAll(RegExp(r'</li>', caseSensitive: false), '\n')
+        // Strip tất cả tag còn lại
+        .replaceAll(RegExp(r'<[^>]*>'), '')
+        // Escaped quotes (WordPress addslashes)
+        .replaceAll('\\"', '"')
+        .replaceAll("\\'", "'")
+        // HTML entities
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#039;', "'")
+        .replaceAll('&nbsp;', ' ');
+
+    // Bước 2: Split theo newline
+    final lines = text
+        .split(RegExp(r'\n+'))
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty)
         .toList();
 
-    // Gộp các dòng ngắn (<30 ký tự) vào dòng tiếp theo để tránh TTS bị ngắt nhịp
+    // Bước 3: Gộp các dòng ngắn (<50 ký tự) để TTS đọc tự nhiên hơn
     final result = <String>[];
     String buffer = '';
     for (final line in lines) {
       if (buffer.isEmpty) {
         buffer = line;
-      } else if (buffer.length < 30) {
+      } else if (buffer.length < 50) {
         buffer = '$buffer $line';
       } else {
         result.add(buffer);

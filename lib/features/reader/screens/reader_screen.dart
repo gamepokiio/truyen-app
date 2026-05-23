@@ -494,9 +494,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       autoPlay:     false, // Ad sẽ show trước, sau đó mới play
     );
 
-    // Trigger ad khi mở audio. Sau khi ad đóng → bắt đầu play
+    // Trigger ad khi mở audio (luôn show nếu có). Sau khi ad đóng → play
     final notifier = ref.read(audioReaderProvider.notifier);
-    final adShown = AdService.instance.onAudioInteraction(
+    final adShown = AdService.instance.onAudioPlayerOpened(
       onDismissed: () => notifier.play(),
     );
     // Không có ad → play ngay
