@@ -73,11 +73,11 @@ final _nuCuongProvider = FutureProvider<List<Novel>>((ref) async {
   return filterNovels(data.map(Novel.fromJson).toList());
 });
 
-/// Đề Cử Convert — genre ID 33
+/// Đề Cử Convert — tag_ID 972
 final _convertProvider = FutureProvider<List<Novel>>((ref) async {
   final api = NovelApi(ref.read(cachedDioProvider));
   final data = await api.getNovels(
-    page: 1, perPage: 19, genreId: 33,
+    page: 1, perPage: 19, genreId: 972,
     orderby: 'modified', order: 'desc',
   );
   return filterNovels(data.map(Novel.fromJson).toList());
@@ -378,7 +378,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               title: 'Đề Cử Convert',
               icon: Icons.translate_rounded,
               onMore: () => context.push('/browse',
-                  extra: const {'genreId': 33, 'label': 'Đề Cử Convert'}),
+                  extra: const {'genreId': 972, 'label': 'Đề Cử Convert'}),
             ),
           ),
           SliverToBoxAdapter(
