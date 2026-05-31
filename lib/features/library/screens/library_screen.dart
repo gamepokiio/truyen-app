@@ -104,14 +104,14 @@ class _HistoryTab extends ConsumerWidget {
         return _HistoryTile(
           entry: entry,
           timeAgo: _timeAgo(entry.readAt),
-          onTap: () => context.push(
+          onTap: () => context.push('/novel/${entry.novelId}'),
+          onReadTap: () => context.push(
             '/reader/${entry.novelId}/${entry.chapterId}',
             extra: {
               'chapterTitle': entry.chapterTitle,
               'chapterNumber': entry.chapterNumber,
             },
           ),
-          onNovelTap: () => context.push('/novel/${entry.novelId}'),
           onRemove: () => ref.read(historyProvider.notifier).removeHistory(entry.novelId),
         );
       },
@@ -122,15 +122,15 @@ class _HistoryTab extends ConsumerWidget {
 class _HistoryTile extends StatelessWidget {
   final HistoryEntry entry;
   final String timeAgo;
-  final VoidCallback onTap;
-  final VoidCallback onNovelTap;
+  final VoidCallback onTap;      // → trang truyện
+  final VoidCallback onReadTap;  // → reader (đọc tiếp)
   final VoidCallback onRemove;
 
   const _HistoryTile({
     required this.entry,
     required this.timeAgo,
     required this.onTap,
-    required this.onNovelTap,
+    required this.onReadTap,
     required this.onRemove,
   });
 
@@ -162,20 +162,17 @@ class _HistoryTile extends StatelessWidget {
           child: Row(
             children: [
               // Cover
-              GestureDetector(
-                onTap: onNovelTap,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: entry.coverUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: entry.coverUrl!,
-                          width: 56, height: 76,
-                          fit: BoxFit.cover,
-                          placeholder: (_, __) => _coverPlaceholder(),
-                          errorWidget: (_, __, ___) => _coverPlaceholder(),
-                        )
-                      : _coverPlaceholder(),
-                ),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: entry.coverUrl != null
+                    ? CachedNetworkImage(
+                        imageUrl: entry.coverUrl!,
+                        width: 56, height: 76,
+                        fit: BoxFit.cover,
+                        placeholder: (_, __) => _coverPlaceholder(),
+                        errorWidget: (_, __, ___) => _coverPlaceholder(),
+                      )
+                    : _coverPlaceholder(),
               ),
               const SizedBox(width: 12),
               // Info
@@ -263,8 +260,11 @@ class _HistoryTile extends StatelessWidget {
                     ),
                   ),
                   // ▶ Đọc tiếp
-                  const Icon(Icons.play_circle_outline_rounded,
-                      color: _teal, size: 26),
+                  GestureDetector(
+                    onTap: onReadTap,
+                    child: const Icon(Icons.play_circle_outline_rounded,
+                        color: _teal, size: 26),
+                  ),
                 ],
               ),
             ],

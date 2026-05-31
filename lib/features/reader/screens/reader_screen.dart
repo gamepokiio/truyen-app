@@ -15,8 +15,9 @@ import '../../../core/services/ad_service.dart';
 import '../../../core/services/audio_reader_service.dart';
 import 'audio_player_screen.dart';
 import '../../novel/screens/novel_detail_screen.dart'
-    show ReadingProgressService, chapterCountProvider,
-         novelDetailInitialTabProvider, chapterPageProvider, ChapterPageState;
+    show ReadingProgressService, readingProgressProvider, nextChapterProvider,
+         chapterCountProvider, novelDetailInitialTabProvider,
+         chapterPageProvider, ChapterPageState;
 
 // ─── Providers ────────────────────────────────────────────────────────────────
 
@@ -116,12 +117,14 @@ class _ReaderSettings {
   final int themeIndex;
   final double lineHeight;
   final int fontIndex;
+  final bool pageMode; // false = cuộn dọc, true = lật trang
 
   const _ReaderSettings({
     this.fontSize = 19,
     this.themeIndex = 0,
     this.lineHeight = 1.8,
     this.fontIndex = 1,
+    this.pageMode = false,
   });
 
   _ReaderSettings copyWith({
@@ -129,12 +132,14 @@ class _ReaderSettings {
     int? themeIndex,
     double? lineHeight,
     int? fontIndex,
+    bool? pageMode,
   }) =>
       _ReaderSettings(
-        fontSize: fontSize ?? this.fontSize,
+        fontSize:   fontSize   ?? this.fontSize,
         themeIndex: themeIndex ?? this.themeIndex,
         lineHeight: lineHeight ?? this.lineHeight,
-        fontIndex: fontIndex ?? this.fontIndex,
+        fontIndex:  fontIndex  ?? this.fontIndex,
+        pageMode:   pageMode   ?? this.pageMode,
       );
 
   /// Tạo TextStyle đọc truyện theo font đã chọn
@@ -194,21 +199,51 @@ class ReaderScreen extends ConsumerStatefulWidget {
 }
 
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
-  bool _showBottomBar = false; // bottom bar ẩn mặc định
   final _scrollCtrl = ScrollController();
+  final _pageCtrl   = PageController();
+
+  static const _kPageModeKey = 'reader_page_mode';
 
   @override
   void initState() {
     super.initState();
     _trackReading();
-    // Immersive ngay từ đầu để tối đa diện tích đọc
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
+    _loadPageModePreference();
+  }
+
+  Future<void> _loadPageModePreference() async {
+    final prefs    = await SharedPreferences.getInstance();
+    final pageMode = prefs.getBool(_kPageModeKey) ?? false;
+    if (mounted && pageMode) {
+      ref.read(_readerSettingsProvider.notifier)
+          .update((s) => s.copyWith(pageMode: true));
+    }
+  }
+
+  static Future<void> _savePageModePreference(bool pageMode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kPageModeKey, pageMode);
+  }
+
+  // go_router pushReplacement cùng route pattern → reuse widget, chỉ gọi
+  // didUpdateWidget thay vì initState → cần track lại khi chapterId đổi.
+  @override
+  void didUpdateWidget(ReaderScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.chapterId != widget.chapterId) {
+      _trackReading();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollCtrl.hasClients) _scrollCtrl.jumpTo(0);
+        if (_pageCtrl.hasClients)   _pageCtrl.jumpToPage(0);
+      });
+    }
   }
 
   @override
   void dispose() {
     _scrollCtrl.dispose();
-    // Restore system UI khi thoát reader
+    _pageCtrl.dispose();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.dispose();
   }
@@ -228,20 +263,32 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       widget.chapterTitle,
     );
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('last_chapter_${widget.novelId}', widget.chapterId);
+    // Invalidate provider để novel detail screen dùng lại data mới nhất
+    // thay vì cache cũ từ lần đầu load.
+    ref.invalidate(readingProgressProvider(widget.novelId));
+    ref.invalidate(nextChapterProvider(widget.novelId));
 
+    // Ưu tiên meta từ NovelDetailScreen; nếu không có (vào reader thẳng từ
+    // library mà không qua detail) → fallback sang history entry hiện có.
     final meta = ref.read(novelMetaCacheProvider)[widget.novelId];
-    if (meta != null) {
+    final existingHistory = ref.read(historyProvider)
+        .where((e) => e.novelId == widget.novelId)
+        .firstOrNull;
+
+    final title      = meta?.title      ?? existingHistory?.title      ?? '';
+    final coverUrl   = meta?.coverUrl   ?? existingHistory?.coverUrl;
+    final authorName = meta?.authorName ?? existingHistory?.authorName;
+
+    if (title.isNotEmpty) {
       await ref.read(historyProvider.notifier).addHistory(HistoryEntry(
-            novelId: widget.novelId,
-            title: meta.title,
-            coverUrl: meta.coverUrl,
-            authorName: meta.authorName,
-            chapterId: widget.chapterId,
-            chapterTitle: widget.chapterTitle,
+            novelId:       widget.novelId,
+            title:         title,
+            coverUrl:      coverUrl,
+            authorName:    authorName,
+            chapterId:     widget.chapterId,
+            chapterTitle:  widget.chapterTitle,
             chapterNumber: widget.chapterNumber,
-            readAt: DateTime.now(),
+            readAt:        DateTime.now(),
           ));
     }
   }
@@ -289,10 +336,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  void _toggleBottomBar() {
-    setState(() => _showBottomBar = !_showBottomBar);
-  }
-
   void _showChapterList() {
     showModalBottomSheet(
       context: context,
@@ -334,10 +377,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     return Scaffold(
       backgroundColor: theme.bg,
-      body: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: _toggleBottomBar, // chỉ toggle bottom bar
-        child: Stack(
+      body: Stack(
           children: [
             // ── Nội dung chương ──────────────────────────────────────────
             chapterAsync.when(
@@ -346,16 +386,31 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               error: (e, _) =>
                   Center(child: Text('Lỗi tải chương: $e')),
               data: (chapter) {
-                final paragraphs =
-                    _splitParagraphs(chapter.content ?? '');
-                // +1 header + +1 footer
+                final paragraphs = _splitParagraphs(chapter.content ?? '');
+
+                if (settings.pageMode) {
+                  // ── Chế độ lật trang ─────────────────────────────────
+                  return _PagedReader(
+                    key: ValueKey('paged_${widget.chapterId}'),
+                    paragraphs:     paragraphs,
+                    settings:       settings,
+                    theme:          theme,
+                    title:          _formattedTitle,
+                    pageCtrl:       _pageCtrl,
+                    prev:           prev,
+                    next:           next,
+                    adjacentLoading: adjacentLoading,
+                    onPrev: prev != null ? () => _navigateTo(prev) : null,
+                    onNext: next != null ? () => _navigateTo(next) : null,
+                  );
+                }
+
+                // ── Chế độ cuộn dọc (mặc định) ───────────────────────
                 return ListView.builder(
                   controller: _scrollCtrl,
-                  // top=100 luôn vì top bar luôn hiển thị
                   padding: const EdgeInsets.fromLTRB(20, 100, 20, 80),
                   itemCount: paragraphs.length + 2,
                   itemBuilder: (ctx, i) {
-                    // index 0 = chapter title header
                     if (i == 0) {
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 20),
@@ -370,22 +425,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         ),
                       );
                     }
-                    // index cuối = footer
                     if (i == paragraphs.length + 1) {
                       return _ChapterFooter(
                         theme: theme,
                         prev: prev,
                         next: next,
                         isLoading: adjacentLoading,
-                        onPrev: prev != null
-                            ? () => _navigateTo(prev)
-                            : null,
-                        onNext: next != null
-                            ? () => _navigateTo(next)
-                            : null,
+                        onPrev: prev != null ? () => _navigateTo(prev) : null,
+                        onNext: next != null ? () => _navigateTo(next) : null,
                       );
                     }
-                    // paragraphs[i-1] (vì i=0 là header)
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 14),
                       child: Text(
@@ -412,25 +461,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               ),
             ),
 
-            // ── Bottom bar — ẩn mặc định, tap để hiện ────────────────────
-            if (_showBottomBar)
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: _BottomBar(
-                  theme: theme,
-                  prev: prev,
-                  next: next,
-                  isLoading: adjacentLoading,
-                  onPrev: prev != null ? () => _navigateTo(prev) : null,
-                  onNext: next != null ? () => _navigateTo(next) : null,
-                  onToc: _showChapterList,
-                ),
-              ),
           ],
         ),
-      ),
     );
   }
 
@@ -487,11 +519,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     // Load chapter vào AudioReaderNotifier (chưa auto-play — đợi sau ad)
     await ref.read(audioReaderProvider.notifier).loadChapter(
-      content:      content,
-      novelTitle:   novelTitle,
-      chapterTitle: widget.chapterTitle,
-      coverUrl:     ref.read(novelMetaCacheProvider)[widget.novelId]?.coverUrl,
-      autoPlay:     false, // Ad sẽ show trước, sau đó mới play
+      content:       content,
+      novelTitle:    novelTitle,
+      chapterTitle:  widget.chapterTitle,
+      coverUrl:      ref.read(novelMetaCacheProvider)[widget.novelId]?.coverUrl,
+      novelId:       widget.novelId,
+      chapterId:     widget.chapterId,
+      chapterNumber: widget.chapterNumber,
+      autoPlay:      false, // Ad sẽ show trước, sau đó mới play
     );
 
     // Trigger ad khi mở audio (luôn show nếu có). Sau khi ad đóng → play
@@ -523,10 +558,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     showModalBottomSheet(
       context: context,
       builder: (_) => _ReaderSettingsSheet(
-        chapterId: widget.chapterId,
+        chapterId:    widget.chapterId,
         chapterTitle: widget.chapterTitle,
         chapterNumber: widget.chapterNumber,
-        novelTitle: novelTitle,
+        novelTitle:   novelTitle,
+        onToc:        _showChapterList,
       ),
     );
   }
@@ -601,96 +637,6 @@ class _TopBar extends ConsumerWidget {
                 onPressed: onSettings,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Bottom Bar ───────────────────────────────────────────────────────────────
-
-class _BottomBar extends StatelessWidget {
-  final ReaderTheme theme;
-  final Chapter? prev;
-  final Chapter? next;
-  final bool isLoading;
-  final VoidCallback? onPrev;
-  final VoidCallback? onNext;
-  final VoidCallback onToc;
-
-  const _BottomBar({
-    required this.theme,
-    required this.prev,
-    required this.next,
-    required this.isLoading,
-    required this.onPrev,
-    required this.onNext,
-    required this.onToc,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final dimColor = theme.text.withValues(alpha: 0.3);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.bg.withValues(alpha: 0.96),
-        border: Border(
-            top: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: Row(
-            children: [
-              // ← Trước
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: isLoading ? null : onPrev,
-                  icon: Icon(Icons.chevron_left_rounded, size: 20,
-                      color: onPrev != null ? theme.text : dimColor),
-                  label: Text('Trước',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: onPrev != null ? theme.text : dimColor)),
-                  style: TextButton.styleFrom(
-                      alignment: Alignment.centerLeft),
-                ),
-              ),
-
-              // Mục lục
-              GestureDetector(
-                onTap: onToc,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.menu_book_rounded,
-                        size: 22, color: theme.text),
-                    const SizedBox(height: 2),
-                    Text('Mục lục',
-                        style: TextStyle(
-                            fontSize: 10, color: theme.text)),
-                  ],
-                ),
-              ),
-
-              // Sau →
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: isLoading ? null : onNext,
-                  icon: Text('Sau',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: onNext != null ? theme.text : dimColor)),
-                  label: Icon(Icons.chevron_right_rounded, size: 20,
-                      color: onNext != null ? theme.text : dimColor),
-                  style: TextButton.styleFrom(
-                      alignment: Alignment.centerRight),
-                ),
               ),
             ],
           ),
@@ -1084,17 +1030,20 @@ class _ReaderSettingsSheet extends ConsumerWidget {
   final String chapterTitle;
   final int chapterNumber;
   final String novelTitle;
+  final VoidCallback onToc;
 
   const _ReaderSettingsSheet({
     required this.chapterId,
     required this.chapterTitle,
     required this.chapterNumber,
     required this.novelTitle,
+    required this.onToc,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final s = ref.watch(_readerSettingsProvider);
+    final s   = ref.watch(_readerSettingsProvider);
+    final ntf = ref.read(_readerSettingsProvider.notifier);
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -1102,11 +1051,73 @@ class _ReaderSettingsSheet extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── Mục lục — đặt đầu tiên để dễ tìm ──────────────────────
+            GestureDetector(
+              onTap: () {
+                Navigator.of(context).pop();
+                Future.microtask(onToc);
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E3A8A).withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: const Color(0xFF1E3A8A).withValues(alpha: 0.2)),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.menu_book_rounded,
+                        size: 18, color: Color(0xFF1E3A8A)),
+                    SizedBox(width: 8),
+                    Text('Danh sách chương',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1E3A8A),
+                        )),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 28),
+
             const Text('Cài đặt đọc',
-                style:
-                    TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
-            // Cỡ chữ
+
+            // ── Chế độ đọc ──────────────────────────────────────────────
+            const Text('Chế độ đọc',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _ReadModeBtn(
+                  label: 'Lật trang',
+                  icon: Icons.auto_stories_rounded,
+                  selected: s.pageMode,
+                  onTap: () {
+                    ntf.update((st) => st.copyWith(pageMode: true));
+                    _ReaderScreenState._savePageModePreference(true);
+                  },
+                ),
+                const SizedBox(width: 8),
+                _ReadModeBtn(
+                  label: 'Cuộn dọc',
+                  icon: Icons.swap_vert_rounded,
+                  selected: !s.pageMode,
+                  onTap: () {
+                    ntf.update((st) => st.copyWith(pageMode: false));
+                    _ReaderScreenState._savePageModePreference(false);
+                  },
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Cỡ chữ
             Row(
               children: [
                 const Text('Cỡ chữ'),
@@ -1242,6 +1253,221 @@ class _ReaderSettingsSheet extends ConsumerWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ─── Reading Mode Toggle Button ───────────────────────────────────────────────
+
+class _ReadModeBtn extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _ReadModeBtn({
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const primary = Color(0xFF1E3A8A);
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color:        selected ? primary : Colors.grey[100],
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected ? primary : Colors.grey[300]!,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon,
+                  size:  16,
+                  color: selected ? Colors.white : Colors.grey[600]),
+              const SizedBox(width: 6),
+              Text(label,
+                  style: TextStyle(
+                    fontSize:   13,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                    color:      selected ? Colors.white : Colors.grey[600],
+                  )),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Paged Reader ─────────────────────────────────────────────────────────────
+
+class _PagedReader extends StatelessWidget {
+  final List<String> paragraphs;
+  final _ReaderSettings settings;
+  final ReaderTheme theme;
+  final String title;
+  final PageController pageCtrl;
+  final Chapter? prev;
+  final Chapter? next;
+  final bool adjacentLoading;
+  final VoidCallback? onPrev;
+  final VoidCallback? onNext;
+
+  const _PagedReader({
+    super.key,
+    required this.paragraphs,
+    required this.settings,
+    required this.theme,
+    required this.title,
+    required this.pageCtrl,
+    required this.prev,
+    required this.next,
+    required this.adjacentLoading,
+    required this.onPrev,
+    required this.onNext,
+  });
+
+  /// Tách paragraphs thành các trang dựa trên ước tính số ký tự/trang.
+  /// Ngắt tại ranh giới đoạn văn — không bao giờ cắt giữa đoạn.
+  static List<List<String>> _splitIntoPages({
+    required List<String> paragraphs,
+    required double screenHeight,
+    required double screenWidth,
+    required double fontSize,
+    required double lineHeight,
+  }) {
+    if (paragraphs.isEmpty) return [[]];
+
+    // Vùng hiển thị text (trừ top bar + bottom padding)
+    final contentHeight = screenHeight - 180.0; // 100 top + 80 bottom
+    final textWidth     = screenWidth - 40.0;   // padding H 20 mỗi bên
+
+    // Ước tính: ký tự Việt trung bình ~0.55× fontSize chiều ngang
+    const kCharFactor = 0.55;
+    final charsPerLine = (textWidth / (fontSize * kCharFactor)).floor().clamp(10, 9999);
+    final lineHeightPx = fontSize * lineHeight;
+    final maxLines     = (contentHeight / lineHeightPx).floor().clamp(3, 9999);
+
+    // Ước tính số dòng mà 1 đoạn văn chiếm (nội dung + 1 dòng khoảng cách)
+    int _paraLines(String p) => (p.length / charsPerLine).ceil() + 1;
+
+    final pages     = <List<String>>[];
+    var   curPage   = <String>[];
+    var   usedLines = 0;
+    // Trang đầu tiên dành 3 dòng cho tiêu đề chương
+    var   reserved  = 3;
+
+    for (final para in paragraphs) {
+      final pl = _paraLines(para);
+
+      if (curPage.isEmpty) {
+        curPage.add(para);
+        usedLines = reserved + pl;
+        reserved  = 0; // chỉ reserve trên trang đầu tiên
+      } else if (usedLines + pl > maxLines) {
+        pages.add(curPage);
+        curPage   = [para];
+        usedLines = pl;
+      } else {
+        curPage.add(para);
+        usedLines += pl;
+      }
+    }
+    if (curPage.isNotEmpty) pages.add(curPage);
+    return pages.isEmpty ? [[]] : pages;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (ctx, constraints) {
+        final pages      = _splitIntoPages(
+          paragraphs:   paragraphs,
+          screenHeight: constraints.maxHeight,
+          screenWidth:  constraints.maxWidth,
+          fontSize:     settings.fontSize,
+          lineHeight:   settings.lineHeight,
+        );
+        final totalPages = pages.length;
+
+        return PageView.builder(
+          controller: pageCtrl,
+          // totalPages + 1 trang cuối = footer chuyển chương
+          itemCount: totalPages + 1,
+          itemBuilder: (_, pageIdx) {
+            // Trang cuối: navigation footer
+            if (pageIdx == totalPages) {
+              return Padding(
+                padding: const EdgeInsets.fromLTRB(20, 100, 20, 20),
+                child: _ChapterFooter(
+                  theme:     theme,
+                  prev:      prev,
+                  next:      next,
+                  isLoading: adjacentLoading,
+                  onPrev:    onPrev,
+                  onNext:    onNext,
+                ),
+              );
+            }
+
+            final pageParas = pages[pageIdx];
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 100, 20, 60),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Tiêu đề chỉ trên trang đầu
+                  if (pageIdx == 0) ...[
+                    Text(
+                      title,
+                      style: settings.buildTextStyle(
+                        color:       theme.text,
+                        extraSize:   3,
+                        customHeight: 1.4,
+                        fontWeight:  FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
+                  // Nội dung đoạn văn
+                  ...pageParas.map((para) => Padding(
+                        padding: const EdgeInsets.only(bottom: 14),
+                        child: Text(
+                          para,
+                          style: settings.buildTextStyle(color: theme.text),
+                        ),
+                      )),
+
+                  const Spacer(),
+
+                  // Chỉ số trang
+                  Center(
+                    child: Text(
+                      '${pageIdx + 1} / $totalPages',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color:    theme.text.withValues(alpha: 0.4),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

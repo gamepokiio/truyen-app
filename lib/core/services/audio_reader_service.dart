@@ -2,11 +2,13 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tts/flutter_tts.dart';
+import '../api/dio_client.dart';
+import '../api/novel_api.dart';
 import 'ad_service.dart';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-enum AudioStatus { stopped, playing, paused }
+enum AudioStatus { stopped, playing, paused, loadingNext }
 
 class AudioReaderState {
   final AudioStatus status;
@@ -18,6 +20,10 @@ class AudioReaderState {
   final String? coverUrl;
   final int? sleepAfterMin;        // null = không hẹn giờ
   final DateTime? sleepStartedAt;  // khi nào bắt đầu đếm
+  // Chapter navigation — cần để auto-advance
+  final int? novelId;
+  final int? chapterId;
+  final int? chapterNumber;
 
   const AudioReaderState({
     this.status = AudioStatus.stopped,
@@ -29,12 +35,16 @@ class AudioReaderState {
     this.coverUrl,
     this.sleepAfterMin,
     this.sleepStartedAt,
+    this.novelId,
+    this.chapterId,
+    this.chapterNumber,
   });
 
-  bool get isPlaying  => status == AudioStatus.playing;
-  bool get isPaused   => status == AudioStatus.paused;
-  bool get isStopped  => status == AudioStatus.stopped;
-  bool get hasContent => paragraphs.isNotEmpty;
+  bool get isPlaying     => status == AudioStatus.playing;
+  bool get isPaused      => status == AudioStatus.paused;
+  bool get isStopped     => status == AudioStatus.stopped;
+  bool get isLoadingNext => status == AudioStatus.loadingNext;
+  bool get hasContent    => paragraphs.isNotEmpty;
 
   String get currentText =>
       (currentIdx < paragraphs.length) ? paragraphs[currentIdx] : '';
@@ -51,8 +61,11 @@ class AudioReaderState {
     String? novelTitle,
     String? chapterTitle,
     String? coverUrl,
-    Object? sleepAfterMin = _sentinel,
+    Object? sleepAfterMin  = _sentinel,
     Object? sleepStartedAt = _sentinel,
+    Object? novelId        = _sentinel,
+    Object? chapterId      = _sentinel,
+    Object? chapterNumber  = _sentinel,
   }) {
     return AudioReaderState(
       status:        status        ?? this.status,
@@ -62,12 +75,11 @@ class AudioReaderState {
       novelTitle:    novelTitle    ?? this.novelTitle,
       chapterTitle:  chapterTitle  ?? this.chapterTitle,
       coverUrl:      coverUrl      ?? this.coverUrl,
-      sleepAfterMin: identical(sleepAfterMin, _sentinel)
-          ? this.sleepAfterMin
-          : sleepAfterMin as int?,
-      sleepStartedAt: identical(sleepStartedAt, _sentinel)
-          ? this.sleepStartedAt
-          : sleepStartedAt as DateTime?,
+      sleepAfterMin:  identical(sleepAfterMin,  _sentinel) ? this.sleepAfterMin  : sleepAfterMin  as int?,
+      sleepStartedAt: identical(sleepStartedAt, _sentinel) ? this.sleepStartedAt : sleepStartedAt as DateTime?,
+      novelId:        identical(novelId,        _sentinel) ? this.novelId        : novelId        as int?,
+      chapterId:      identical(chapterId,      _sentinel) ? this.chapterId      : chapterId      as int?,
+      chapterNumber:  identical(chapterNumber,  _sentinel) ? this.chapterNumber  : chapterNumber  as int?,
     );
   }
 }
@@ -77,17 +89,19 @@ const _sentinel = Object();
 // ─── Notifier ─────────────────────────────────────────────────────────────────
 
 class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
-  AudioReaderNotifier() : super(const AudioReaderState()) {
+  AudioReaderNotifier(this._ref) : super(const AudioReaderState()) {
     _init();
   }
 
+  final Ref _ref;
   final FlutterTts _tts = FlutterTts();
   Timer? _sleepTimer;
 
+  /// Flag: TTS đang đọc thông báo "Hết chương, chuyển sang chương mới"
+  /// → completionHandler cần biết để gọi fetch thay vì advance paragraph.
+  bool _isAnnouncingTransition = false;
+
   // ── TTS rate mapping ───────────────────────────────────────────────────────
-  /// Chuyển speed người dùng (0.5x–2.0x) → TTS speech rate
-  /// iOS: 0.5 = normal (AVSpeechUtteranceDefaultSpeechRate), 1.0 = max
-  /// Android: 1.0 = normal nhưng thực tế cũng nhanh, dùng 0.5 cho nhất quán
   static double _toTtsRate(double speed) => (speed * 0.5).clamp(0.0, 1.0);
 
   // ── Init TTS engine ────────────────────────────────────────────────────────
@@ -110,35 +124,41 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
       IosTextToSpeechAudioMode.defaultMode,
     );
 
-    // Khi đọc xong 1 đoạn → tự động qua đoạn tiếp
-    _tts.setCompletionHandler(_onParagraphComplete);
+    _tts.setCompletionHandler(_onTtsCompleted);
     _tts.setCancelHandler(_onTtsCancelled);
     _tts.setErrorHandler((_) => _onTtsCancelled());
   }
 
   // ── Load chapter content ───────────────────────────────────────────────────
-  /// Gọi khi user mở audio player hoặc chuyển chương
   Future<void> loadChapter({
     required String content,
     required String novelTitle,
     required String chapterTitle,
     String? coverUrl,
-    bool autoPlay = true,
+    int? novelId,
+    int? chapterId,
+    int? chapterNumber,
+    bool autoPlay      = true,
+    bool keepSleepTimer = false, // true khi auto-advance/user chọn chương — giữ nguyên timer
   }) async {
     if (kIsWeb) return;
+    _isAnnouncingTransition = false;
     await _tts.stop();
-    _sleepTimer?.cancel();
+    if (!keepSleepTimer) _sleepTimer?.cancel();
 
     final paragraphs = _splitParagraphs(content);
     state = state.copyWith(
-      status:       AudioStatus.stopped,
-      paragraphs:   paragraphs,
-      currentIdx:   0,
-      novelTitle:   novelTitle,
-      chapterTitle: chapterTitle,
-      coverUrl:     coverUrl,
-      sleepAfterMin:   null,
-      sleepStartedAt:  null,
+      status:        AudioStatus.stopped,
+      paragraphs:    paragraphs,
+      currentIdx:    0,
+      novelTitle:    novelTitle,
+      chapterTitle:  chapterTitle,
+      coverUrl:      coverUrl,
+      novelId:       novelId,
+      chapterId:     chapterId,
+      chapterNumber: chapterNumber,
+      sleepAfterMin:   keepSleepTimer ? state.sleepAfterMin  : null,
+      sleepStartedAt:  keepSleepTimer ? state.sleepStartedAt : null,
     );
 
     if (autoPlay && paragraphs.isNotEmpty) {
@@ -150,7 +170,6 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
   Future<void> play() async {
     if (kIsWeb || state.paragraphs.isEmpty) return;
     if (state.isPaused) {
-      // Cập nhật UI ngay lập tức trước khi đợi TTS
       state = state.copyWith(status: AudioStatus.playing);
       _syncAdFlag();
       await _tts.setSpeechRate(_toTtsRate(state.speed));
@@ -162,15 +181,15 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
 
   Future<void> pause() async {
     if (kIsWeb) return;
-    // Cập nhật UI ngay lập tức (responsive), rồi await stop để TTS thực sự dừng
+    _isAnnouncingTransition = false;
     state = state.copyWith(status: AudioStatus.paused);
     _syncAdFlag();
-    await _tts.stop(); // await để đảm bảo audio dừng hẳn
-    // _onTtsCancelled sẽ fire nhưng state đã là paused → không làm gì thêm
+    await _tts.stop();
   }
 
   Future<void> stop() async {
     if (kIsWeb) return;
+    _isAnnouncingTransition = false;
     await _tts.stop();
     _sleepTimer?.cancel();
     state = state.copyWith(
@@ -190,9 +209,58 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
     }
   }
 
+  // ── Load chapter by ID (user chọn từ danh sách chương) ───────────────────
+  Future<void> loadChapterById({
+    required int chapterId,
+    required String chapterTitle,
+    required int chapterNumber,
+  }) async {
+    if (kIsWeb) return;
+    final novelId = state.novelId;
+    if (novelId == null) return;
+
+    _isAnnouncingTransition = false;
+    await _tts.stop();
+    _sleepTimer?.cancel();
+
+    state = state.copyWith(
+      status:        AudioStatus.loadingNext,
+      paragraphs:    const [],
+      currentIdx:    0,
+      chapterTitle:  chapterTitle,
+      chapterId:     chapterId,
+      chapterNumber: chapterNumber,
+      sleepAfterMin:  null,
+      sleepStartedAt: null,
+    );
+
+    try {
+      final api     = NovelApi(_ref.read(cachedDioProvider));
+      final data    = await api.getChapterById(chapterId);
+      final content = data['content'] as String? ?? '';
+
+      if (content.isEmpty) { _stopAndReset(); return; }
+
+      await loadChapter(
+        content:        content,
+        novelTitle:     state.novelTitle,
+        chapterTitle:   chapterTitle,
+        coverUrl:       state.coverUrl,
+        novelId:        novelId,
+        chapterId:      chapterId,
+        chapterNumber:  chapterNumber,
+        autoPlay:       true,
+        keepSleepTimer: true, // giữ timer nếu user đang hẹn giờ
+      );
+    } catch (_) {
+      _stopAndReset();
+    }
+  }
+
   // ── Seek ───────────────────────────────────────────────────────────────────
   Future<void> seekTo(int idx) async {
     if (kIsWeb || idx < 0 || idx >= state.paragraphs.length) return;
+    _isAnnouncingTransition = false;
     await _tts.stop();
     await _playFrom(idx);
   }
@@ -215,13 +283,11 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
   Future<void> setSpeed(double speed) async {
     if (kIsWeb) return;
     final wasPlaying = state.isPlaying;
-    final idx        = state.currentIdx; // lưu lại trước khi state thay đổi
+    final idx        = state.currentIdx;
     state = state.copyWith(speed: speed);
     if (wasPlaying) {
-      // Set paused TRƯỚC khi stop() — giống pause() — để _onTtsCancelled không can thiệp
       state = state.copyWith(status: AudioStatus.paused);
       await _tts.stop();
-      // Restart đúng đoạn hiện tại (không phải từ đầu chương)
       await _tts.setSpeechRate(_toTtsRate(speed));
       await _playFrom(idx);
     } else {
@@ -245,7 +311,6 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
     });
   }
 
-  /// Số giây còn lại của sleep timer
   int? get sleepRemainingSeconds {
     if (state.sleepAfterMin == null || state.sleepStartedAt == null) return null;
     final elapsed = DateTime.now().difference(state.sleepStartedAt!).inSeconds;
@@ -258,7 +323,7 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
     AdService.instance.isAudioPlaying = state.isPlaying;
   }
 
-  // ── Internal ───────────────────────────────────────────────────────────────
+  // ── Internal playback ─────────────────────────────────────────────────────
   Future<void> _playFrom(int idx) async {
     if (kIsWeb || idx >= state.paragraphs.length) {
       state = state.copyWith(status: AudioStatus.stopped);
@@ -271,13 +336,40 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
     await _tts.speak(state.paragraphs[idx]);
   }
 
-  void _onParagraphComplete() {
+  // ── TTS completion handler ────────────────────────────────────────────────
+  void _onTtsCompleted() {
+    // Đang đọc thông báo chuyển chương → fetch chương tiếp
+    if (_isAnnouncingTransition) {
+      _isAnnouncingTransition = false;
+      _fetchAndLoadNextChapter();
+      return;
+    }
+
     if (!state.isPlaying) return;
+
     final next = state.currentIdx + 1;
     if (next < state.paragraphs.length) {
       _playFrom(next);
     } else {
-      // Hết chương — hủy sleep timer, reset state
+      _onChapterEnd();
+    }
+  }
+
+  void _onTtsCancelled() {
+    if (_isAnnouncingTransition) {
+      _isAnnouncingTransition = false;
+      return;
+    }
+    if (state.isPlaying) {
+      state = state.copyWith(status: AudioStatus.paused);
+      _syncAdFlag();
+    }
+  }
+
+  // ── Chapter end logic ─────────────────────────────────────────────────────
+  void _onChapterEnd() {
+    // Không có thông tin novel → không thể auto-advance → dừng
+    if (state.novelId == null || state.chapterNumber == null) {
       _sleepTimer?.cancel();
       state = state.copyWith(
         status:        AudioStatus.stopped,
@@ -286,31 +378,126 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
         sleepStartedAt: null,
       );
       _syncAdFlag();
+      return;
+    }
+
+    // Có thông tin → thông báo TTS rồi chuyển chương
+    _isAnnouncingTransition = true;
+    // Đọc thông báo ở tốc độ bình thường (0.5) bất kể setting speed của user
+    _tts.setSpeechRate(0.5).then((_) {
+      _tts.speak('Hết chương, chuyển sang chương mới');
+    });
+  }
+
+  // ── Fetch & load next chapter ──────────────────────────────────────────────
+  Future<void> _fetchAndLoadNextChapter() async {
+    final novelId     = state.novelId;
+    final currentNum  = state.chapterNumber ?? 0;
+
+    if (novelId == null || currentNum <= 0) {
+      _stopAndReset();
+      return;
+    }
+
+    // Hiện trạng loading — giữ thông tin truyện, clear paragraphs
+    state = state.copyWith(
+      status:      AudioStatus.loadingNext,
+      paragraphs:  const [],
+      currentIdx:  0,
+      chapterTitle: 'Đang tải chương ${currentNum + 1}...',
+    );
+
+    try {
+      final api       = NovelApi(_ref.read(cachedDioProvider));
+      final targetNum = currentNum + 1;
+
+      // Bước 1: Tìm chapter ID theo số chương
+      // Chapters trả về theo thứ tự mới nhất trước (số lớn → đầu list)
+      // Chapter #N nằm ở vị trí 0-based: (total - N), tính page tương ứng
+      final total = await api.getChapterCount(novelId);
+      if (total == 0 || targetNum > total) {
+        // Hết truyện
+        _stopAndReset();
+        return;
+      }
+
+      const perPage  = 50;
+      final zeroIdx  = total - targetNum;   // 0-based index từ đầu list
+      final page     = (zeroIdx ~/ perPage) + 1;
+
+      final chaptersResult = await api.getChapters(
+        novelId: novelId, page: page, perPage: perPage,
+      );
+      final items = List<Map<String, dynamic>>.from(
+        chaptersResult['items'] as List? ?? [],
+      );
+
+      Map<String, dynamic>? nextChap;
+      for (final ch in items) {
+        if (((ch['number'] as num?)?.round() ?? 0) == targetNum) {
+          nextChap = ch;
+          break;
+        }
+      }
+
+      if (nextChap == null) {
+        _stopAndReset();
+        return;
+      }
+
+      final nextId    = nextChap['id'] as int;
+      final nextTitle = nextChap['title'] as String? ?? 'Chương $targetNum';
+
+      // Bước 2: Fetch nội dung chương tiếp
+      final chapterData = await api.getChapterById(nextId);
+      final content     = chapterData['content'] as String? ?? '';
+
+      if (content.isEmpty) {
+        _stopAndReset();
+        return;
+      }
+
+      // Guard: sleep timer có thể đã fire trong lúc fetch → không phát nữa
+      if (state.isStopped) return;
+
+      // Bước 3: Load và phát — giữ sleep timer nếu user đã hẹn
+      await loadChapter(
+        content:        content,
+        novelTitle:     state.novelTitle,
+        chapterTitle:   nextTitle,
+        coverUrl:       state.coverUrl,
+        novelId:        novelId,
+        chapterId:      nextId,
+        chapterNumber:  targetNum,
+        autoPlay:       true,
+        keepSleepTimer: true,
+      );
+    } catch (_) {
+      _stopAndReset();
     }
   }
 
-  void _onTtsCancelled() {
-    // TTS bị cancel từ bên ngoài (không phải từ code của mình)
-    if (state.isPlaying) {
-      state = state.copyWith(status: AudioStatus.paused);
-      _syncAdFlag();
-    }
+  void _stopAndReset() {
+    _sleepTimer?.cancel();
+    state = state.copyWith(
+      status:        AudioStatus.stopped,
+      currentIdx:    0,
+      sleepAfterMin:  null,
+      sleepStartedAt: null,
+    );
+    _syncAdFlag();
   }
 
   // ── Text splitting ─────────────────────────────────────────────────────────
   static List<String> _splitParagraphs(String content) {
-    // Bước 1: Block elements → newline trước khi strip tag
     final text = content
         .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'</p>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'</div>', caseSensitive: false), '\n')
         .replaceAll(RegExp(r'</li>', caseSensitive: false), '\n')
-        // Strip tất cả tag còn lại
         .replaceAll(RegExp(r'<[^>]*>'), '')
-        // Escaped quotes (WordPress addslashes)
         .replaceAll('\\"', '"')
         .replaceAll("\\'", "'")
-        // HTML entities
         .replaceAll('&amp;', '&')
         .replaceAll('&lt;', '<')
         .replaceAll('&gt;', '>')
@@ -318,14 +505,12 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
         .replaceAll('&#039;', "'")
         .replaceAll('&nbsp;', ' ');
 
-    // Bước 2: Split theo newline
     final lines = text
         .split(RegExp(r'\n+'))
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty)
         .toList();
 
-    // Bước 3: Gộp các dòng ngắn (<50 ký tự) để TTS đọc tự nhiên hơn
     final result = <String>[];
     String buffer = '';
     for (final line in lines) {
@@ -346,14 +531,15 @@ class AudioReaderNotifier extends StateNotifier<AudioReaderState> {
   @override
   void dispose() {
     _sleepTimer?.cancel();
+    _isAnnouncingTransition = false;
     if (!kIsWeb) _tts.stop();
     super.dispose();
   }
 }
 
-// ─── Provider (global — sống suốt vòng đời app) ──────────────────────────────
+// ─── Provider ─────────────────────────────────────────────────────────────────
 
 final audioReaderProvider =
     StateNotifierProvider<AudioReaderNotifier, AudioReaderState>(
-  (ref) => AudioReaderNotifier(),
+  (ref) => AudioReaderNotifier(ref),
 );
