@@ -261,6 +261,47 @@ final chapterPageProvider =
 bool _isFollowing(List<LibraryEntry> list, int novelId) =>
     list.any((e) => e.novelId == novelId);
 
+// Tránh hiện dialog "truyện đã mất" nhiều lần khi widget rebuild
+final Set<int> _novelGoneDialogShownFor = {};
+
+void _showNovelGoneDialog(BuildContext context, WidgetRef ref, int novelId) {
+  if (_novelGoneDialogShownFor.contains(novelId)) return;
+  _novelGoneDialogShownFor.add(novelId);
+
+  showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (dialogCtx) => AlertDialog(
+      title: const Text('Truyện không còn tồn tại'),
+      content: const Text(
+        'Truyện này đã bị xóa hoặc ẩn khỏi hệ thống. '
+        'Bạn có muốn xóa khỏi tủ truyện (Theo dõi & Lịch sử đọc) không?',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            _novelGoneDialogShownFor.remove(novelId);
+            Navigator.of(dialogCtx).pop();
+            if (context.mounted) context.pop();
+          },
+          child: const Text('Đóng'),
+        ),
+        FilledButton(
+          onPressed: () async {
+            final dialogNav = Navigator.of(dialogCtx);
+            await ref.read(followingProvider.notifier).remove(novelId);
+            await ref.read(historyProvider.notifier).removeHistory(novelId);
+            _novelGoneDialogShownFor.remove(novelId);
+            dialogNav.pop();
+            if (context.mounted) context.pop();
+          },
+          child: const Text('Xóa khỏi tủ truyện'),
+        ),
+      ],
+    ),
+  );
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 class NovelDetailScreen extends ConsumerWidget {
@@ -275,10 +316,21 @@ class NovelDetailScreen extends ConsumerWidget {
         backgroundColor: _heroBg,
         body: Center(child: CircularProgressIndicator(color: _tealStart)),
       ),
-      error: (e, _) => Scaffold(
-        appBar: AppBar(),
-        body: Center(child: Text('Lỗi: $e')),
-      ),
+      error: (e, _) {
+        if (e is NovelNotFoundException) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _showNovelGoneDialog(context, ref, e.novelId);
+          });
+          return const Scaffold(
+            backgroundColor: _heroBg,
+            body: Center(child: CircularProgressIndicator(color: _tealStart)),
+          );
+        }
+        return Scaffold(
+          appBar: AppBar(),
+          body: Center(child: Text('Lỗi: $e')),
+        );
+      },
       data: (novel) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           ref.read(novelMetaCacheProvider.notifier).update((m) => {
@@ -1997,25 +2049,14 @@ class _ReadButton extends ConsumerWidget {
     final isSearchingNext = progress != null && nextChapterAsync.isLoading;
 
     return GestureDetector(
-      onTap: isSearchingNext ? null : () {
+      onTap: () {
         if (progress != null) {
-          final next = nextChapterAsync.valueOrNull;
-          // Dùng next chapter nếu tìm thấy, fallback về chapter đang đọc
-          final target = next;
-          if (target != null) {
-            ReadingProgressService.save(
-                novel.id, target.id, target.chapterNumber, target.title);
-            context.push('/reader/${novel.id}/${target.id}', extra: {
-              'chapterTitle': target.title,
-              'chapterNumber': target.chapterNumber,
-            });
-          } else {
-            // next == null: đang ở chương cuối → đọc lại chương đó
-            context.push('/reader/${novel.id}/${progress.chapterId}', extra: {
-              'chapterTitle': progress.chapterTitle,
-              'chapterNumber': progress.chapterNumber,
-            });
-          }
+          // Luôn mở lại đúng chương đang đọc dở (đã lưu lúc mở reader gần nhất)
+          // — không tự nhảy sang chương kế tiếp vì user có thể chưa đọc xong.
+          context.push('/reader/${novel.id}/${progress.chapterId}', extra: {
+            'chapterTitle': progress.chapterTitle,
+            'chapterNumber': progress.chapterNumber,
+          });
         } else {
           firstChapterAsync.whenData((chapter) {
             if (chapter != null && context.mounted) {

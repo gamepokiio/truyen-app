@@ -181,6 +181,63 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
 
+          // ── Category shortcuts ─────────────────────────────────────────
+          SliverToBoxAdapter(
+            child: Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _CategoryBtn(
+                    icon: Icons.auto_stories_outlined,
+                    label: 'Truyện Full',
+                    onTap: () => context.push('/browse',
+                        extra: const {'status': 'completed', 'label': 'Truyện Full'}),
+                  ),
+                  _CategoryBtn(
+                    icon: Icons.auto_fix_high,
+                    label: 'Tiên Hiệp',
+                    onTap: () {
+                      final map = ref.read(_genreMapProvider).valueOrNull;
+                      final id  = map?['tien-hiep'];
+                      context.push('/browse', extra: id != null
+                          ? {'genreId': id, 'label': 'Tiên Hiệp'}
+                          : {'genreSlug': 'tien-hiep', 'label': 'Tiên Hiệp'});
+                    },
+                  ),
+                  _CategoryBtn(
+                    icon: Icons.favorite_outline,
+                    label: 'Ngôn Tình',
+                    onTap: () {
+                      final map = ref.read(_genreMapProvider).valueOrNull;
+                      final id  = map?['ngon-tinh'];
+                      context.push('/browse', extra: id != null
+                          ? {'genreId': id, 'label': 'Ngôn Tình'}
+                          : {'genreSlug': 'ngon-tinh', 'label': 'Ngôn Tình'});
+                    },
+                  ),
+                  _CategoryBtn(
+                    icon: Icons.psychology_outlined,
+                    label: 'Hệ Thống',
+                    onTap: () {
+                      final map = ref.read(_genreMapProvider).valueOrNull;
+                      final id  = map?['he-thong'];
+                      context.push('/browse', extra: id != null
+                          ? {'genreId': id, 'label': 'Hệ Thống'}
+                          : {'genreSlug': 'he-thong', 'label': 'Hệ Thống'});
+                    },
+                  ),
+                  _CategoryBtn(
+                    icon: Icons.grid_view_rounded,
+                    label: 'Thể Loại',
+                    onTap: () => context.push('/genres'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
           // ── Hero Carousel (thể loại Hay, 6 truyện) ─────────────────────
           SliverToBoxAdapter(
             child: hayAsync.when(
@@ -415,64 +472,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 );
               },
-            ),
-          ),
-
-          // ── Category shortcuts ─────────────────────────────────────────
-          const SliverToBoxAdapter(child: SizedBox(height: 12)),
-          SliverToBoxAdapter(
-            child: Container(
-              color: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _CategoryBtn(
-                    icon: Icons.auto_stories_outlined,
-                    label: 'Truyện Full',
-                    onTap: () => context.push('/browse',
-                        extra: const {'status': 'completed', 'label': 'Truyện Full'}),
-                  ),
-                  _CategoryBtn(
-                    icon: Icons.auto_fix_high,
-                    label: 'Tiên Hiệp',
-                    onTap: () {
-                      final map = ref.read(_genreMapProvider).valueOrNull;
-                      final id  = map?['tien-hiep'];
-                      context.push('/browse', extra: id != null
-                          ? {'genreId': id, 'label': 'Tiên Hiệp'}
-                          : {'genreSlug': 'tien-hiep', 'label': 'Tiên Hiệp'});
-                    },
-                  ),
-                  _CategoryBtn(
-                    icon: Icons.favorite_outline,
-                    label: 'Ngôn Tình',
-                    onTap: () {
-                      final map = ref.read(_genreMapProvider).valueOrNull;
-                      final id  = map?['ngon-tinh'];
-                      context.push('/browse', extra: id != null
-                          ? {'genreId': id, 'label': 'Ngôn Tình'}
-                          : {'genreSlug': 'ngon-tinh', 'label': 'Ngôn Tình'});
-                    },
-                  ),
-                  _CategoryBtn(
-                    icon: Icons.psychology_outlined,
-                    label: 'Hệ Thống',
-                    onTap: () {
-                      final map = ref.read(_genreMapProvider).valueOrNull;
-                      final id  = map?['he-thong'];
-                      context.push('/browse', extra: id != null
-                          ? {'genreId': id, 'label': 'Hệ Thống'}
-                          : {'genreSlug': 'he-thong', 'label': 'Hệ Thống'});
-                    },
-                  ),
-                  _CategoryBtn(
-                    icon: Icons.grid_view_rounded,
-                    label: 'Thể Loại',
-                    onTap: () => context.push('/genres'),
-                  ),
-                ],
-              ),
             ),
           ),
 

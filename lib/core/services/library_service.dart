@@ -64,6 +64,11 @@ class LibraryNotifier extends StateNotifier<List<LibraryEntry>> {
     await _save();
   }
 
+  Future<void> remove(int novelId) async {
+    state = state.where((e) => e.novelId != novelId).toList();
+    await _save();
+  }
+
   bool isFollowing(int novelId) => state.any((e) => e.novelId == novelId);
 }
 

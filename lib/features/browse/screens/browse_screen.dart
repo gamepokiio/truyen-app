@@ -19,6 +19,8 @@ class BrowseFilter {
   final String orderby;
   final String? explicitOrderby;   // null = user chưa chọn sort
   final String order;
+  final int? minChapters;          // lọc theo khoảng số chương — độc lập với Thể loại/Trạng thái
+  final int? maxChapters;          // null = không giới hạn trên
 
   const BrowseFilter({
     this.genreId,
@@ -32,16 +34,21 @@ class BrowseFilter {
     this.orderby = 'modified',
     this.explicitOrderby,
     this.order = 'desc',
+    this.minChapters,
+    this.maxChapters,
   });
 
   String? get chipLabel => label ?? genreName;
+
+  bool get isChapterRangeMode => minChapters != null;
 
   bool get hasActiveFilter =>
       genreId != null ||
       (genreIds?.isNotEmpty ?? false) ||
       (teamIds?.isNotEmpty ?? false) ||
       status != null ||
-      explicitOrderby != null;
+      explicitOrderby != null ||
+      minChapters != null;
 
   BrowseFilter copyWith({
     int? genreId,
@@ -55,9 +62,12 @@ class BrowseFilter {
     String? orderby,
     String? explicitOrderby,
     String? order,
+    int? minChapters,
+    int? maxChapters,
     bool clearGenre = false,
     bool clearStatus = false,
     bool clearSearch = false,
+    bool clearChapterRange = false,
   }) {
     return BrowseFilter(
       genreId:        clearGenre ? null : (genreId  ?? this.genreId),
@@ -71,6 +81,8 @@ class BrowseFilter {
       orderby:        orderby ?? this.orderby,
       explicitOrderby: explicitOrderby ?? this.explicitOrderby,
       order:          order   ?? this.order,
+      minChapters:    clearChapterRange ? null : (minChapters ?? this.minChapters),
+      maxChapters:    clearChapterRange ? null : (maxChapters ?? this.maxChapters),
     );
   }
 }
@@ -93,6 +105,9 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
   bool _loading = false;
   bool _hasMore = true;
   int _page = 1;
+  // Đếm số lần reset để loại bỏ kết quả "trễ" từ request cũ khi đổi filter
+  // (tránh race condition: request cũ trả về sau khi user đã đổi filter mới)
+  int _fetchGen = 0;
 
   @override
   void initState() {
@@ -121,38 +136,72 @@ class _BrowseScreenState extends ConsumerState<BrowseScreen> {
 
   Future<void> _fetchMore() async {
     if (_loading || !_hasMore) return;
+    final gen = _fetchGen;
     setState(() => _loading = true);
     try {
       final api = NovelApi(ref.read(dioProvider));
-      final data = await api.getNovels(
-        page: _page,
-        perPage: 20,
-        orderby: _filter.orderby,
-        order: _filter.order,
-        genreId: _filter.genreId,
-        genreIds: _filter.genreIds,
-        teamIds: _filter.teamIds,
-        search: _filter.search,
-        teamId: _filter.teamId,
-        status: _filter.status,
-      );
-      final novels = filterNovels(data.map(Novel.fromJson).toList());
+      final List<Novel> novels;
+      final int fetchedCount;
+
+      if (_filter.isChapterRangeMode) {
+        // Chế độ lọc theo số chương — 2 bước: lấy IDs khớp khoảng rồi fetch đầy đủ
+        final idsRes = await api.getNovelIdsByChapterRange(
+          min: _filter.minChapters!,
+          max: _filter.maxChapters,
+          order: _filter.order,
+          page: _page,
+          perPage: 20,
+        );
+        fetchedCount = idsRes.ids.length;
+        if (idsRes.ids.isEmpty) {
+          novels = [];
+        } else {
+          final data = await api.getNovels(include: idsRes.ids, perPage: idsRes.ids.length);
+          // Giữ đúng thứ tự theo số chương đã lọc (vì /wp/v2/manga?include= không đảm bảo giữ thứ tự)
+          final byId = {for (final n in data.map(Novel.fromJson)) n.id: n};
+          novels = filterNovels(
+              idsRes.ids.map((id) => byId[id]).whereType<Novel>().toList());
+        }
+      } else {
+        final data = await api.getNovels(
+          page: _page,
+          perPage: 20,
+          orderby: _filter.orderby,
+          order: _filter.order,
+          genreId: _filter.genreId,
+          genreIds: _filter.genreIds,
+          teamIds: _filter.teamIds,
+          search: _filter.search,
+          teamId: _filter.teamId,
+          status: _filter.status,
+        );
+        fetchedCount = data.length;
+        novels = filterNovels(data.map(Novel.fromJson).toList());
+      }
+
+      // Bỏ qua nếu filter đã đổi/đã reset trong lúc đang chờ — tránh ghi đè
+      // state bằng kết quả "trễ" của request cũ (race condition).
+      if (gen != _fetchGen) return;
+
       setState(() {
         _novels.addAll(novels);
         _page++;
-        _hasMore = data.length == 20;
+        _hasMore = fetchedCount == 20;
         _loading = false;
       });
     } catch (e) {
+      if (gen != _fetchGen) return;
       setState(() => _loading = false);
     }
   }
 
   void _resetAndFetch() {
     setState(() {
+      _fetchGen++;
       _novels.clear();
       _page = 1;
       _hasMore = true;
+      _loading = false;
     });
     _fetchMore();
   }

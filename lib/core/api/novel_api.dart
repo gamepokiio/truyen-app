@@ -1,5 +1,14 @@
 import 'package:dio/dio.dart';
 
+/// Ném ra khi truyện không còn tồn tại trên server (đã bị xóa hoặc ẩn/private)
+class NovelNotFoundException implements Exception {
+  final int novelId;
+  const NovelNotFoundException(this.novelId);
+
+  @override
+  String toString() => 'NovelNotFoundException(novelId: $novelId)';
+}
+
 class NovelApi {
   final Dio _dio;
   NovelApi(this._dio);
@@ -66,8 +75,48 @@ class NovelApi {
       // Khi dùng include, bỏ page/orderby để WP trả đúng thứ tự IDs
       if (include != null && include.isNotEmpty) 'include': include,
     };
-    final res = await _dio.get('/wp/v2/manga', queryParameters: params);
+    // QUAN TRỌNG: 'include'/'genre'/'team' có thể là List<int> — Dio mặc định
+    // serialize List thành `key=1&key=2&...` (ListFormat.multi). PHP/WordPress
+    // chỉ hiểu mảng khi key có hậu tố `[]` (`key[]=1&key[]=2`); nếu không sẽ
+    // CHỈ GIỮ GIÁ TRỊ CUỐI CÙNG → WP lọc theo đúng 1 ID thay vì cả danh sách.
+    // multiCompatible tạo ra `key[]=1&key[]=2&...` đúng định dạng PHP cần.
+    final hasListParam = (include != null && include.isNotEmpty) ||
+        params['genre'] is List ||
+        params['team'] is List;
+    final res = await _dio.get(
+      '/wp/v2/manga',
+      queryParameters: params,
+      options: hasListParam
+          ? Options(listFormat: ListFormat.multiCompatible)
+          : null,
+    );
     return List<Map<String, dynamic>>.from(res.data);
+  }
+
+  /// Lấy danh sách manga ID theo khoảng số chương — dùng cho filter "Số chương".
+  /// [max] = null nghĩa là không giới hạn trên (vd "Trên 1000 chương").
+  /// Trả về { ids: List<int>, total: int, maxPages: int } — gọi tiếp [getNovels]
+  /// với `include: ids` để lấy đầy đủ dữ liệu truyện.
+  Future<({List<int> ids, int total, int maxPages})> getNovelIdsByChapterRange({
+    required int min,
+    int? max,
+    String order = 'desc',
+    int page = 1,
+    int perPage = 20,
+  }) async {
+    final res = await _dio.get('/initmanga/v1/manga-by-chapters', queryParameters: {
+      'min': min,
+      if (max != null) 'max': max,
+      'order': order,
+      'page': page,
+      'per_page': perPage,
+    });
+    final data = Map<String, dynamic>.from(res.data);
+    return (
+      ids: List<int>.from((data['ids'] as List? ?? []).map((e) => (e as num).toInt())),
+      total: (data['total'] as num? ?? 0).toInt(),
+      maxPages: (data['max_pages'] as num? ?? 0).toInt(),
+    );
   }
 
   Future<Map<String, dynamic>> getNovelById(int id) async {
@@ -76,11 +125,20 @@ class NovelApi {
     // To fix on the backend, add to the initmanga plugin (or functions.php):
     //   register_post_meta('manga','_manga_views',['show_in_rest'=>true,'type'=>'integer','single'=>true]);
     // Until then, novel.viewCount is always 0 from this endpoint.
-    final res = await _dio.get(
-      '/wp/v2/manga/$id',
-      queryParameters: {'_embed': 'wp:featuredmedia,author,wp:term'},
-    );
-    return Map<String, dynamic>.from(res.data);
+    try {
+      final res = await _dio.get(
+        '/wp/v2/manga/$id',
+        queryParameters: {'_embed': 'wp:featuredmedia,author,wp:term'},
+      );
+      return Map<String, dynamic>.from(res.data);
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      // 404: không tồn tại | 403/410: bị set private/đã gỡ khỏi REST API
+      if (status == 404 || status == 403 || status == 410) {
+        throw NovelNotFoundException(id);
+      }
+      rethrow;
+    }
   }
 
   Future<Map<String, dynamic>> getChapters({
@@ -94,6 +152,23 @@ class NovelApi {
       'per_page': perPage,
     });
     return Map<String, dynamic>.from(res.data);
+  }
+
+  /// Lấy chương kề (prev/next) chính xác theo SỐ CHƯƠNG hiện tại — dùng SQL
+  /// nearest-neighbor phía server (giống cơ chế web đang dùng), nên vẫn đúng
+  /// ngay cả khi truyện bị nhảy cóc số chương (vd 1,2,3,4,5,8,9,... thiếu 6,7).
+  /// Trả về null cho prev/next nếu không còn chương kề (đầu/cuối truyện).
+  Future<({Map<String, dynamic>? prev, Map<String, dynamic>? next})>
+      getAdjacentChapters(int novelId, num chapterNumber) async {
+    final res = await _dio.get('/initmanga/v1/adjacent-chapters', queryParameters: {
+      'manga_id': novelId,
+      'number': chapterNumber,
+    });
+    final data = Map<String, dynamic>.from(res.data as Map);
+    return (
+      prev: data['prev'] != null ? Map<String, dynamic>.from(data['prev'] as Map) : null,
+      next: data['next'] != null ? Map<String, dynamic>.from(data['next'] as Map) : null,
+    );
   }
 
   Future<int> getChapterCount(int novelId) async {

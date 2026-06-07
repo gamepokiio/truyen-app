@@ -51,6 +51,14 @@ class ReaderTheme {
     bg: Color(0xFF1A1A2E), text: Color(0xFFE0E0E0), name: 'Tối');
   static const cream = ReaderTheme(
     bg: Color(0xFFEAE4D3), text: Color(0xFF3E2723), name: 'Kem');
+  static const charcoal = ReaderTheme(
+    bg: Color(0xFF222222), text: Color(0xFFE0E0E0), name: 'Xám đậm');
+  static const black = ReaderTheme(
+    bg: Color(0xFF000000), text: Color(0xFFCCCCCC), name: 'Đen');
 
-  static const all = [white, sepia, cream, dark];
+  // QUAN TRỌNG: themeIndex được lưu vào SharedPreferences (xem
+  // _saveThemeIndexPreference trong reader_screen.dart) — CHỈ thêm theme mới
+  // vào CUỐI list này, không chèn giữa/đổi thứ tự, để không làm sai lệch
+  // theme đã lưu của user hiện tại.
+  static const all = [white, sepia, cream, dark, charcoal, black];
 }

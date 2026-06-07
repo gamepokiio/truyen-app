@@ -58,6 +58,26 @@ const _statusOpts = [
   ('Tạm dừng',   'source_hiatus'),
 ];
 
+// ─── Chapter count range options ──────────────────────────────────────────────
+// Lưu ý: lọc theo số chương KHÔNG kết hợp được với Thể loại/Nhóm dịch (xem ghi chú UI)
+
+class _ChapterRangeOpt {
+  final String label;
+  final int min;
+  final int? max; // null = không giới hạn trên
+  const _ChapterRangeOpt(this.label, this.min, this.max);
+
+  bool matches(int? min, int? max) => this.min == min && this.max == max;
+}
+
+const _chapterRangeOpts = [
+  _ChapterRangeOpt('Dưới 100 chương',     0,    99),
+  _ChapterRangeOpt('100 - 300 chương',    100,  300),
+  _ChapterRangeOpt('300 - 500 chương',    300,  500),
+  _ChapterRangeOpt('500 - 1000 chương',   500,  1000),
+  _ChapterRangeOpt('Trên 1000 chương',    1000, null),
+];
+
 // ─── Bottom sheet ─────────────────────────────────────────────────────────────
 
 class FilterBottomSheet extends ConsumerStatefulWidget {
@@ -80,6 +100,8 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
   late String?  _status;
   late Set<int> _genreIds;
   late Set<int> _teamIds;
+  late int?     _minChapters;
+  late int?     _maxChapters;
 
   static const _teal = Color(0xFF1E3A8A);
 
@@ -97,6 +119,8 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
         widget.currentFilter.genreId!,
     };
     _teamIds = {...?widget.currentFilter.teamIds};
+    _minChapters = widget.currentFilter.minChapters;
+    _maxChapters = widget.currentFilter.maxChapters;
   }
 
   void _reset() => setState(() {
@@ -105,6 +129,32 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
         _status   = null;
         _teamIds  = {};
         _genreIds = {};
+        _minChapters = null;
+        _maxChapters = null;
+      });
+
+  /// Lọc theo số chương không kết hợp được với Thể loại/Trạng thái/Nhóm dịch
+  /// (khác nguồn dữ liệu — xem giải thích trong getNovelIdsByChapterRange).
+  /// Chọn 1 bên sẽ tự bỏ chọn bên còn lại.
+  void _selectChapterRange(_ChapterRangeOpt opt) => setState(() {
+        final isSame = opt.matches(_minChapters, _maxChapters);
+        _minChapters = isSame ? null : opt.min;
+        _maxChapters = isSame ? null : opt.max;
+        if (!isSame) {
+          // Endpoint lọc theo số chương chỉ hỗ trợ sắp xếp tăng/giảm theo
+          // chính số chương (qua `order`) — không áp dụng Sắp xếp/Tình trạng/Thể loại
+          _orderby = '';
+          _order = 'desc';
+          _status = null;
+          _genreIds = {};
+          _teamIds = {};
+        }
+      });
+
+  void _clearChapterRangeFor(VoidCallback action) => setState(() {
+        _minChapters = null;
+        _maxChapters = null;
+        action();
       });
 
   void _apply() {
@@ -115,6 +165,8 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
       status:          _status,
       genreIds:        _genreIds.isEmpty ? null : _genreIds.toList(),
       teamIds:         _teamIds.isEmpty  ? null : _teamIds.toList(),
+      minChapters:     _minChapters,
+      maxChapters:     _maxChapters,
     ));
     Navigator.of(context).pop();
   }
@@ -171,10 +223,34 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
                     children: _sortOpts.map((opt) => _Chip(
                       label: opt.label,
                       selected: _orderby == opt.orderby,
-                      onTap: () => setState(() {
+                      onTap: () => _clearChapterRangeFor(() {
                         _orderby = opt.orderby;
                         _order   = opt.order;
                       }),
+                    )).toList(),
+                  ),
+                  const SizedBox(height: 18),
+                  // Số chương — chế độ lọc độc lập, loại trừ các bộ lọc/sắp xếp khác
+                  Row(
+                    children: [
+                      _Label('Số chương'),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Chế độ riêng — bỏ qua Sắp xếp/Tình trạng/Thể loại/Nhóm dịch',
+                          style: TextStyle(fontSize: 11, color: Colors.grey),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8, runSpacing: 8,
+                    children: _chapterRangeOpts.map((opt) => _Chip(
+                      label: opt.label,
+                      selected: opt.matches(_minChapters, _maxChapters),
+                      onTap: () => _selectChapterRange(opt),
                     )).toList(),
                   ),
                   const SizedBox(height: 18),
@@ -185,7 +261,7 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
                     children: _statusOpts.map((s) => _Chip(
                       label: s.$1,
                       selected: _status == s.$2,
-                      onTap: () => setState(() =>
+                      onTap: () => _clearChapterRangeFor(() =>
                           _status = (_status == s.$2) ? null : s.$2),
                     )).toList(),
                   ),
@@ -229,7 +305,7 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
                         return _Chip(
                           label: g.name,
                           selected: sel,
-                          onTap: () => setState(() =>
+                          onTap: () => _clearChapterRangeFor(() =>
                               sel ? _genreIds.remove(g.id)
                                   : _genreIds.add(g.id)),
                         );
@@ -314,7 +390,7 @@ class _FilterBottomSheetState extends ConsumerState<FilterBottomSheet> {
                     return _Chip(
                       label: t.name,
                       selected: sel,
-                      onTap: () => setState(() =>
+                      onTap: () => _clearChapterRangeFor(() =>
                           sel ? _teamIds.remove(t.id) : _teamIds.add(t.id)),
                     );
                   }).toList(),

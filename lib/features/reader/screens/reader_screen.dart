@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../core/api/dio_client.dart';
@@ -65,43 +64,29 @@ final _adjacentProvider = FutureProvider.family<
   // ── Cần fetch ít nhất 1 chapter ───────────────────────────────────────
   if (args.chapterNumber <= 0) return (prev: null, next: null);
 
-  final total = await ref.read(chapterCountProvider(args.novelId).future);
-  if (total <= 0) return (prev: null, next: null);
-
-  const perPage = 50;
-  final totalPages = (total / perPage).ceil();
   final api = NovelApi(ref.read(cachedDioProvider));
 
-  Future<Chapter?> findByNum(int num) async {
-    if (num < 1 || num > total) return null;
-    final posFromTop = total - num + 1;
-    final calcPage = (posFromTop / perPage).ceil().clamp(1, totalPages);
-    for (final pg in [calcPage, calcPage + 1, calcPage - 1]) {
-      if (pg < 1 || pg > totalPages) continue;
-      try {
-        final res = await api.getChapters(
-            novelId: args.novelId, page: pg, perPage: perPage);
-        final items = res['items'] as List? ?? [];
-        final chapters = items
-            .map((j) => Chapter.fromJson(j as Map<String, dynamic>))
-            .toList();
-        return chapters.firstWhere((c) => c.chapterNumber == num);
-      } catch (_) {}
-    }
-    return null;
+  Chapter? fromMap(Map<String, dynamic>? m) => m == null
+      ? null
+      : Chapter.fromJson({...m, 'manga_id': args.novelId});
+
+  // 1 lần gọi API duy nhất — server tìm chương kề bằng SQL nearest-neighbor
+  // (chapter_number < / > hiện tại, lấy gần nhất), CHÍNH XÁC kể cả khi
+  // truyện bị nhảy cóc số chương (vd 1,2,3,4,5,8,9,... thiếu 6,7) — đây
+  // chính là cơ chế web đang dùng và đã chạy ổn định nhiều năm.
+  try {
+    final adj = await api.getAdjacentChapters(args.novelId, args.chapterNumber);
+    return (
+      prev: args.prevId != null
+          ? lite(args.prevId!, args.prevTitle, args.prevNum)
+          : fromMap(adj.prev),
+      next: args.nextId != null
+          ? lite(args.nextId!, args.nextTitle, args.nextNum)
+          : fromMap(adj.next),
+    );
+  } catch (_) {
+    return (prev: null, next: null);
   }
-
-  // Dùng giá trị biết sẵn nếu có, chỉ fetch cái chưa biết
-  final prevFuture = args.prevId != null
-      ? Future.value(lite(args.prevId!, args.prevTitle, args.prevNum))
-      : findByNum(args.chapterNumber - 1);
-
-  final nextFuture = args.nextId != null
-      ? Future.value(lite(args.nextId!, args.nextTitle, args.nextNum))
-      : findByNum(args.chapterNumber + 1);
-
-  final results = await Future.wait([prevFuture, nextFuture]);
-  return (prev: results[0], next: results[1]);
 });
 
 // ─── Reader Settings ──────────────────────────────────────────────────────────
@@ -155,9 +140,11 @@ class _ReaderSettings {
       case 1: return TextStyle(
           fontFamily: 'Inter',
           fontSize: sz, color: color, height: h, fontWeight: fontWeight);
-      case 2: return GoogleFonts.notoSerif(
+      case 2: return TextStyle(
+          fontFamily: 'NotoSerif',
           fontSize: sz, color: color, height: h, fontWeight: fontWeight);
-      case 3: return GoogleFonts.lora(
+      case 3: return TextStyle(
+          fontFamily: 'Lora',
           fontSize: sz, color: color, height: h, fontWeight: fontWeight);
       default: return TextStyle(
           fontSize: sz, color: color, height: h, fontWeight: fontWeight);
@@ -202,7 +189,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   final _scrollCtrl = ScrollController();
   final _pageCtrl   = PageController();
 
+  // Tap vào nội dung → hiện/ẩn thanh điều hướng dưới [< Trước][Mục lục][Sau >]
+  bool _showBottomBar = false;
+  void _toggleBottomBar() => setState(() => _showBottomBar = !_showBottomBar);
+
   static const _kPageModeKey = 'reader_page_mode';
+  static const _kThemeIndexKey = 'reader_theme_index';
 
   @override
   void initState() {
@@ -210,6 +202,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _trackReading();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersive);
     _loadPageModePreference();
+    _loadThemeIndexPreference();
   }
 
   Future<void> _loadPageModePreference() async {
@@ -224,6 +217,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   static Future<void> _savePageModePreference(bool pageMode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPageModeKey, pageMode);
+  }
+
+  Future<void> _loadThemeIndexPreference() async {
+    final prefs      = await SharedPreferences.getInstance();
+    final themeIndex = prefs.getInt(_kThemeIndexKey);
+    if (mounted && themeIndex != null &&
+        themeIndex >= 0 && themeIndex < ReaderTheme.all.length) {
+      ref.read(_readerSettingsProvider.notifier)
+          .update((s) => s.copyWith(themeIndex: themeIndex));
+    }
+  }
+
+  static Future<void> _saveThemeIndexPreference(int themeIndex) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kThemeIndexKey, themeIndex);
   }
 
   // go_router pushReplacement cùng route pattern → reuse widget, chỉ gọi
@@ -379,8 +387,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       backgroundColor: theme.bg,
       body: Stack(
           children: [
-            // ── Nội dung chương ──────────────────────────────────────────
-            chapterAsync.when(
+            // ── Nội dung chương — tap để hiện/ẩn thanh điều hướng dưới ────
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _toggleBottomBar,
+              child: chapterAsync.when(
               loading: () =>
                   const Center(child: CircularProgressIndicator()),
               error: (e, _) =>
@@ -445,6 +456,31 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   },
                 );
               },
+              ),
+            ),
+
+            // ── Bottom bar — hiện khi tap vào nội dung ───────────────────
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: AnimatedSlide(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeOut,
+                offset: _showBottomBar ? Offset.zero : const Offset(0, 1),
+                child: IgnorePointer(
+                  ignoring: !_showBottomBar,
+                  child: _BottomBar(
+                    theme: theme,
+                    prev: prev,
+                    next: next,
+                    isLoading: adjacentLoading,
+                    onPrev: prev != null ? () => _navigateTo(prev) : null,
+                    onNext: next != null ? () => _navigateTo(next) : null,
+                    onToc: _showChapterList,
+                  ),
+                ),
+              ),
             ),
 
             // ── Top bar — LUÔN HIỂN THỊ ──────────────────────────────────
@@ -557,6 +593,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final novelTitle = ref.read(novelMetaCacheProvider)[widget.novelId]?.title ?? '';
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true, // cho phép sheet cao tới max + cuộn được khi nội dung dài hơn màn hình
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.9),
       builder: (_) => _ReaderSettingsSheet(
         chapterId:    widget.chapterId,
         chapterTitle: widget.chapterTitle,
@@ -746,6 +784,93 @@ class _ChapterFooter extends StatelessWidget {
 
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Bottom Bar — [< Trước][Mục lục][Sau >] hiện khi tap vào nội dung ────────
+
+class _BottomBar extends StatelessWidget {
+  final ReaderTheme theme;
+  final Chapter? prev;
+  final Chapter? next;
+  final bool isLoading;
+  final VoidCallback? onPrev;
+  final VoidCallback? onNext;
+  final VoidCallback onToc;
+
+  const _BottomBar({
+    required this.theme,
+    required this.prev,
+    required this.next,
+    required this.isLoading,
+    required this.onPrev,
+    required this.onNext,
+    required this.onToc,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final activeColor   = theme.text;
+    final disabledColor = theme.text.withValues(alpha: 0.3);
+    final dividerColor  = theme.text.withValues(alpha: 0.15);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.bg.withValues(alpha: 0.96),
+        border: Border(
+            top: BorderSide(color: Colors.grey.withValues(alpha: 0.2))),
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 52,
+          child: Row(
+            children: [
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: onPrev,
+                  icon: Icon(Icons.chevron_left_rounded,
+                      color: onPrev != null ? activeColor : disabledColor,
+                      size: 20),
+                  label: Text('Trước',
+                      style: TextStyle(
+                          color: onPrev != null ? activeColor : disabledColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ),
+              Container(width: 1, height: 24, color: dividerColor),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: onToc,
+                  icon: Icon(Icons.menu_book_rounded,
+                      color: activeColor, size: 18),
+                  label: Text('Mục lục',
+                      style: TextStyle(
+                          color: activeColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600)),
+                ),
+              ),
+              Container(width: 1, height: 24, color: dividerColor),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: onNext,
+                  icon: Text('Sau',
+                      style: TextStyle(
+                          color: onNext != null ? activeColor : disabledColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600)),
+                  label: Icon(Icons.chevron_right_rounded,
+                      color: onNext != null ? activeColor : disabledColor,
+                      size: 20),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -1045,7 +1170,10 @@ class _ReaderSettingsSheet extends ConsumerWidget {
     final s   = ref.watch(_readerSettingsProvider);
     final ntf = ref.read(_readerSettingsProvider.notifier);
     return SafeArea(
-      child: Padding(
+      child: SingleChildScrollView(
+        // Cho phép cuộn khi nội dung cao hơn màn hình (vd nhiều theme/font,
+        // màn hình thấp khi xoay ngang) — tránh RenderFlex overflow.
+        child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1152,9 +1280,11 @@ class _ReaderSettingsSheet extends ConsumerWidget {
               children: List.generate(ReaderTheme.all.length, (i) {
                 final t = ReaderTheme.all[i];
                 return GestureDetector(
-                  onTap: () => ref
-                      .read(_readerSettingsProvider.notifier)
-                      .update((st) => st.copyWith(themeIndex: i)),
+                  onTap: () {
+                    ref.read(_readerSettingsProvider.notifier)
+                        .update((st) => st.copyWith(themeIndex: i));
+                    _ReaderScreenState._saveThemeIndexPreference(i);
+                  },
                   child: Container(
                     width: 72,
                     height: 40,
@@ -1251,6 +1381,7 @@ class _ReaderSettingsSheet extends ConsumerWidget {
               ),
             ),
           ],
+        ),
         ),
       ),
     );

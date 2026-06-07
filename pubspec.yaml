@@ -27,7 +27,6 @@ dependencies:
 
   # UI
   cached_network_image: ^3.4.1
-  google_fonts: ^6.2.1
   shimmer: ^3.0.0
 
   # Utils
@@ -83,6 +82,16 @@ flutter:
         - asset: assets/fonts/Inter-Regular.ttf
         - asset: assets/fonts/Inter-Bold.ttf
           weight: 700
+    # Bundle local thay vì GoogleFonts.notoSerif()/lora() (vốn tải file font
+    # qua mạng lúc runtime — gây treo/lỗi hiển thị trên thiết bị bị chặn mạng
+    # nền, vd MIUI/HyperOS). Là font biến thể (variable font) nên engine tự
+    # nội suy đúng độ đậm theo FontWeight yêu cầu, không cần khai nhiều weight.
+    - family: NotoSerif
+      fonts:
+        - asset: assets/fonts/NotoSerif-Variable.ttf
+    - family: Lora
+      fonts:
+        - asset: assets/fonts/Lora-Variable.ttf
   assets:
     - assets/images/
     - assets/fonts/
